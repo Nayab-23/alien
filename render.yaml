@@ -1,5 +1,6 @@
 services:
   # Main Next.js app (handles both frontend and backend API routes)
+  # Uses SQLite for simplicity (hackathon/demo setup)
   - type: web
     name: signal-market
     env: node
@@ -11,24 +12,17 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        sync: false  # Set this manually in Render dashboard
+        value: /opt/render/project/src/sqlite.db
       - key: NONCE_SECRET
         generateValue: true
-        sync: false
       - key: APP_ID
-        sync: false  # Set this manually
+        sync: false
+      - key: NEXT_PUBLIC_APP_ID
+        sync: false
       - key: DEV_PORTAL_API_KEY
-        sync: false  # Set this manually
+        sync: false
       - key: RECIPIENT_ADDRESS
-        sync: false  # Set this manually
+        sync: false
       - key: ADMIN_ALIEN_SUBJECTS
-        sync: false  # Set this manually
+        sync: false
     healthCheckPath: /api/health
-
-  # PostgreSQL database (required for production)
-  - type: pserv
-    name: signal-market-db
-    env: postgres
-    region: oregon
-    plan: free
-    ipAllowList: []

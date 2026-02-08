@@ -25,10 +25,13 @@ export function MiniKitProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Install MiniKit
-    MiniKit.install();
+    const appId = process.env.NEXT_PUBLIC_APP_ID;
+    if (appId) {
+      MiniKit.install(appId);
+    } else {
+      console.warn("NEXT_PUBLIC_APP_ID not set, MiniKit will not initialize");
+    }
 
-    // Check if already authenticated
     checkAuth();
   }, []);
 
@@ -40,8 +43,8 @@ export function MiniKitProvider({ children }: { children: React.ReactNode }) {
         setUser(data.user);
         setIsAuthenticated(true);
       }
-    } catch (err) {
-      console.error("Auth check failed:", err);
+    } catch {
+      // Expected to fail when not authenticated
     } finally {
       setIsLoading(false);
     }
@@ -52,6 +55,10 @@ export function MiniKitProvider({ children }: { children: React.ReactNode }) {
     try {
       // 1. Get nonce
       const nonceRes = await fetch("/api/nonce");
+      if (!nonceRes.ok) {
+        const errText = await nonceRes.text();
+        throw new Error(`Failed to get nonce: ${errText}`);
+      }
       const { nonce } = await nonceRes.json();
 
       // 2. Sign with MiniKit
@@ -69,7 +76,8 @@ export function MiniKitProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (!authRes.ok) {
-        throw new Error("Authentication failed");
+        const errText = await authRes.text();
+        throw new Error(`Authentication failed: ${errText}`);
       }
 
       const { user: authenticatedUser } = await authRes.json();
@@ -86,7 +94,6 @@ export function MiniKitProvider({ children }: { children: React.ReactNode }) {
   function signOut() {
     setUser(null);
     setIsAuthenticated(false);
-    // Clear cookies by calling logout endpoint if needed
   }
 
   return (

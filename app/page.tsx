@@ -36,8 +36,12 @@ export default function Home() {
   async function fetchPredictions() {
     try {
       const res = await fetch("/api/predictions?limit=20");
+      if (!res.ok) {
+        console.error("Failed to fetch predictions:", res.status);
+        return;
+      }
       const data = await res.json();
-      setPredictions(data.predictions);
+      setPredictions(data.predictions || []);
     } catch (err) {
       console.error("Failed to fetch predictions:", err);
     } finally {
