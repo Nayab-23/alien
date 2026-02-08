@@ -54,7 +54,8 @@ ADMIN_ALIEN_SUBJECTS=0xAdmin1,0xAdmin2
 | Doc | Purpose |
 |-----|---------|
 | **[SHIP_CHECKLIST.md](SHIP_CHECKLIST.md)** | **Step-by-step demo preparation guide (START HERE for hackathons!)** |
-| [DEPLOY.md](DEPLOY.md) | Comprehensive deployment guide (Vercel, Docker, manual) |
+| **[RENDER_DEPLOY.md](RENDER_DEPLOY.md)** | **Deploy to Render (recommended for easy setup)** |
+| [DEPLOY.md](DEPLOY.md) | Deploy to Vercel, Docker, or manual Node.js |
 | [PAYMENT_FLOW.md](PAYMENT_FLOW.md) | Complete payment system guide (stake creation, webhook, confirmation) |
 | [SETTLEMENT.md](SETTLEMENT.md) | Settlement logic, reputation formula, price oracle integration |
 | [FRONTEND.md](FRONTEND.md) | Frontend implementation guide (all screens, components, state management) |
@@ -493,13 +494,16 @@ vercel deploy --prod
 curl https://your-app.vercel.app/api/health
 ```
 
-See [DEPLOY.md](DEPLOY.md) for comprehensive deployment guide covering:
-- **Production deployment options**: Vercel (recommended), Docker, manual Node.js
+See deployment guides:
+- **[RENDER_DEPLOY.md](RENDER_DEPLOY.md)** - Deploy to Render (single web service with PostgreSQL)
+- **[DEPLOY.md](DEPLOY.md)** - Deploy to Vercel, Docker, or manual Node.js
+
+Both guides cover:
 - **Database setup**: PostgreSQL for production
 - **Environment variable configuration**: All required variables explained
 - **Database migrations**: Running migrations in production
 - **Webhook configuration**: Testing and monitoring payment webhooks
-- **Production sanity checklist**: 35-item verification checklist
+- **Production sanity checklist**: Verification steps
 - **Troubleshooting**: Common issues and solutions
 
 ## Support
