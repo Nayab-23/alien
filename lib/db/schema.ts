@@ -116,3 +116,76 @@ export const reputationEvents = pgTable(
     ).on(table.userId, table.predictionId),
   })
 );
+
+// ─── comments ───────────────────────────────────────────────────────────────
+export const comments = pgTable(
+  "comments",
+  {
+    id: serial("id").primaryKey(),
+    predictionId: integer("prediction_id")
+      .notNull()
+      .references(() => predictions.id),
+    authorUserId: integer("author_user_id")
+      .notNull()
+      .references(() => users.id),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    predictionIdx: index("comments_prediction_idx").on(table.predictionId),
+    authorIdx: index("comments_author_idx").on(table.authorUserId),
+    createdAtIdx: index("comments_created_at_idx").on(table.createdAt),
+  })
+);
+
+// ─── votes ──────────────────────────────────────────────────────────────────
+export const voteTargetType = ["prediction", "comment"] as const;
+export type VoteTargetType = (typeof voteTargetType)[number];
+
+export const votes = pgTable(
+  "votes",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id),
+    targetType: text("target_type", { enum: voteTargetType }).notNull(),
+    targetId: integer("target_id").notNull(),
+    // -1 downvote, +1 upvote
+    value: integer("value").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    userTargetUniq: uniqueIndex("votes_user_target_uniq").on(
+      table.userId,
+      table.targetType,
+      table.targetId
+    ),
+    targetIdx: index("votes_target_idx").on(table.targetType, table.targetId),
+    userIdx: index("votes_user_idx").on(table.userId),
+  })
+);
+
+// ─── follows ───────────────────────────────────────────────────────────────
+export const follows = pgTable(
+  "follows",
+  {
+    id: serial("id").primaryKey(),
+    followerUserId: integer("follower_user_id")
+      .notNull()
+      .references(() => users.id),
+    followedUserId: integer("followed_user_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    followerFollowedUniq: uniqueIndex("follows_follower_followed_uniq").on(
+      table.followerUserId,
+      table.followedUserId
+    ),
+    followerIdx: index("follows_follower_idx").on(table.followerUserId),
+    followedIdx: index("follows_followed_idx").on(table.followedUserId),
+  })
+);

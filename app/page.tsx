@@ -3,39 +3,74 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/MiniKitProvider";
 import Link from "next/link";
+import { PredictionCard, type FeedPrediction } from "@/components/PredictionCard";
+import { BetSheet } from "@/components/BetSheet";
+import { SkeletonPredictionCard } from "@/components/SkeletonPredictionCard";
 
-type Prediction = {
-  id: number;
-  assetSymbol: string;
-  direction: "up" | "down";
-  timeframeEnd: number;
-  confidence: number;
-  status: string;
-  createdAt: string;
-  creatorReputation: {
+type Prediction = FeedPrediction & {
+  commentsCount?: number;
+  creatorReputation?: {
     winRate: number;
     totalSettled: number;
     score: number;
   };
-  stakeSummary: {
-    totalFor: string;
-    totalAgainst: string;
-    stakeCount: number;
-  };
 };
+
+type FeedTab = "trending" | "new" | "following" | "settling_soon";
+
+function isSettlingSoon(timeframeEnd: number): boolean {
+  const msLeft = timeframeEnd * 1000 - Date.now();
+  return msLeft > 0 && msLeft <= 24 * 60 * 60 * 1000;
+}
+
+function predictionStakeWld(pred: Prediction): number {
+  const total = Number(pred.stakeSummary.totalFor) + Number(pred.stakeSummary.totalAgainst);
+  if (!Number.isFinite(total)) return 0;
+  return total / 1e18;
+}
+
+function hotScore(pred: Prediction): number {
+  const ageHours = Math.max(
+    0,
+    (Date.now() - new Date(pred.createdAt).getTime()) / (1000 * 60 * 60)
+  );
+  const stake = predictionStakeWld(pred);
+  const score = pred.score ?? 0;
+  const raw = score * 2 + Math.log10(1 + stake) * 6 + stake * 0.15;
+  const decay = 1 / Math.pow(1 + ageHours / 6, 1.35);
+  return raw * decay;
+}
 
 export default function Home() {
   const { isAuthenticated, user, isLoading, authToken } = useAuth();
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<FeedTab>("trending");
+  const [toast, setToast] = useState<string | null>(null);
+  const [betOpen, setBetOpen] = useState(false);
+  const [betPrediction, setBetPrediction] = useState<Prediction | null>(null);
+  const judgeMode =
+    typeof process !== "undefined" && process.env.NEXT_PUBLIC_JUDGE_MODE === "true";
+  const [judgeOn, setJudgeOn] = useState(false);
 
   useEffect(() => {
     fetchPredictions();
-  }, []);
+  }, [authToken]);
+
+  useEffect(() => {
+    if (!judgeMode) return;
+    const stored =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem("anchorsignal_judge_mode")
+        : null;
+    setJudgeOn(stored === "true");
+  }, [judgeMode]);
 
   async function fetchPredictions() {
     try {
-      const res = await fetch("/api/predictions?limit=20");
+      const res = await fetch("/api/predictions?limit=20", {
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+      });
       if (!res.ok) {
         console.error("Failed to fetch predictions:", res.status);
         return;
@@ -49,21 +84,16 @@ export default function Home() {
     }
   }
 
-  function formatWLD(baseUnits: string): string {
-    const wld = Number(baseUnits) / 1e18;
-    return wld.toFixed(2);
-  }
-
-  function formatDate(unix: number): string {
-    return new Date(unix * 1000).toLocaleDateString();
-  }
-
   if (isLoading || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
+      <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-zinc-950 dark:text-zinc-50">
+        <div className="mx-auto max-w-2xl px-4 pt-[calc(env(safe-area-inset-top)+16px)]">
+          <div className="h-10 w-40 rounded-xl bg-zinc-200/70 dark:bg-zinc-800/70 animate-pulse" />
+          <div className="mt-5 space-y-3 pb-[calc(env(safe-area-inset-bottom)+24px)]">
+            <SkeletonPredictionCard />
+            <SkeletonPredictionCard />
+            <SkeletonPredictionCard />
+          </div>
         </div>
       </div>
     );
@@ -71,138 +101,290 @@ export default function Home() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-4">
+      <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gray-50 text-gray-900 dark:bg-zinc-950 dark:text-zinc-50">
         <div className="text-center max-w-md">
-          <h1 className="text-3xl font-bold mb-4">Signal Market</h1>
-          <p className="text-gray-600 mb-6">
+          <h1 className="text-3xl font-bold mb-4">AnchorSignal</h1>
+          <p className="text-gray-600 dark:text-zinc-400 mb-6">
             Bet on price predictions with verified humans. Open this app inside Alien to get started.
           </p>
           <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="text-sm text-gray-500 mt-4">Waiting for Alien bridge...</p>
+          <p className="text-sm text-gray-500 dark:text-zinc-500 mt-4">
+            Waiting for Alien bridge...
+          </p>
         </div>
       </div>
     );
   }
 
+  const filteredPredictions =
+    tab === "following"
+      ? predictions.filter((p) => p.creatorIsFollowed)
+      : tab === "settling_soon"
+        ? predictions.filter((p) => isSettlingSoon(p.timeframeEnd))
+        : predictions;
+
+  const sortedPredictions =
+    tab === "new"
+      ? [...filteredPredictions].sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        )
+      : tab === "trending"
+        ? [...filteredPredictions].sort((a, b) => {
+            return hotScore(b) - hotScore(a);
+          })
+        : filteredPredictions;
+
   return (
-    <div className="min-h-screen pb-20">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-xl font-bold">Signal Market</h1>
-          <div className="flex items-center gap-2">
-            <span className="badge badge-success">Verified</span>
-            <Link href="/leaderboard" className="text-primary font-medium">
-              Leaderboard
-            </Link>
+    <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-zinc-950 dark:text-zinc-50">
+      <header className="sticky top-0 z-20 bg-gray-50/90 backdrop-blur supports-[backdrop-filter]:bg-gray-50/70 dark:bg-zinc-950/80">
+        <div className="mx-auto max-w-2xl px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-xl bg-zinc-900 dark:bg-zinc-50" aria-hidden="true" />
+              <div className="leading-tight">
+                <div className="text-sm font-extrabold tracking-tight">AnchorSignal</div>
+                <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                  Social prediction platform
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {judgeMode && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !judgeOn;
+                    setJudgeOn(next);
+                    window.localStorage.setItem("anchorsignal_judge_mode", String(next));
+                    setToast(next ? "Judge Mode enabled" : "Judge Mode disabled");
+                    window.setTimeout(() => setToast(null), 1200);
+                  }}
+                  className={`inline-flex items-center rounded-full px-3 py-1.5 text-[11px] font-semibold ring-1 ring-inset ${
+                    judgeOn
+                      ? "bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900/60"
+                      : "bg-white text-zinc-700 ring-zinc-200 dark:bg-zinc-950/40 dark:text-zinc-200 dark:ring-zinc-800"
+                  }`}
+                >
+                  Judge
+                </button>
+              )}
+              <button
+                type="button"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:ring-zinc-800"
+                aria-label="Search"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="text-zinc-700 dark:text-zinc-200"
+                >
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="M21 21l-4.3-4.3" />
+                </svg>
+              </button>
+
+              <Link
+                href="/leaderboard"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full ring-1 ring-inset ring-zinc-200 bg-white dark:bg-zinc-950/40 dark:ring-zinc-800"
+                aria-label="Profile"
+              >
+                <div className="h-7 w-7 rounded-full bg-gradient-to-br from-indigo-400 to-fuchsia-400" aria-hidden="true" />
+              </Link>
+            </div>
           </div>
         </div>
+
+      <div className="sticky top-[calc(env(safe-area-inset-top)+64px)] z-20 border-b border-zinc-200 bg-gray-50/90 backdrop-blur supports-[backdrop-filter]:bg-gray-50/70 dark:border-zinc-800 dark:bg-zinc-950/80">
+        <div className="mx-auto max-w-2xl px-4 py-2">
+          <div className="flex items-center gap-2 overflow-x-auto [-webkit-overflow-scrolling:touch]">
+            {(
+              [
+                ["trending", "Trending"],
+                ["new", "New"],
+                ["following", "Following"],
+                ["settling_soon", "Settling Soon"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTab(key)}
+                className={`shrink-0 rounded-full px-3 py-1.5 text-sm font-semibold ring-1 ring-inset transition ${
+                  tab === key
+                    ? "bg-zinc-900 text-white ring-zinc-900 dark:bg-zinc-50 dark:text-zinc-950 dark:ring-zinc-50"
+                    : "bg-white text-zinc-700 ring-zinc-200 dark:bg-zinc-950/40 dark:text-zinc-200 dark:ring-zinc-800"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
       </header>
 
-      {/* Main Content */}
-      <main className="max-w-2xl mx-auto px-4 py-6">
-        {/* Create CTA */}
-        <Link
-          href="/create"
-          className="btn btn-primary w-full mb-6 text-center block"
-        >
-          + Create Prediction
-        </Link>
-
-        {/* Predictions List */}
-        <div className="space-y-4">
-          {predictions.length === 0 ? (
-            <div className="card text-center text-gray-500">
-              <p>No predictions yet. Be the first!</p>
-            </div>
-          ) : (
-            predictions.map((pred) => (
-              <Link
-                key={pred.id}
-                href={`/predictions/${pred.id}`}
-                className="card block hover:shadow-md transition-shadow"
+      <main className="mx-auto max-w-2xl px-4 pb-[calc(env(safe-area-inset-bottom)+24px)] pt-4">
+        {judgeMode && judgeOn && (
+          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+            <div className="flex items-center justify-between gap-3">
+              <div className="font-semibold">Judge Mode</div>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!authToken) {
+                    setToast("Verify in Alien (admin) to seed.");
+                    window.setTimeout(() => setToast(null), 1500);
+                    return;
+                  }
+                  try {
+                    const res = await fetch("/api/dev/seed", {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${authToken}`,
+                      },
+                      body: JSON.stringify({
+                        users: 8,
+                        predictions: 14,
+                        comments_per_prediction: 4,
+                      }),
+                    });
+                    const data = await res.json().catch(() => null);
+                    if (!res.ok) throw new Error(data?.error || "seed failed");
+                    setToast(
+                      `Seeded ${data.created.predictions} preds, ${data.created.comments} comments.`
+                    );
+                    window.setTimeout(() => setToast(null), 1800);
+                    await fetchPredictions();
+                  } catch {
+                    setToast("Seed failed (admin + JUDGE_MODE required).");
+                    window.setTimeout(() => setToast(null), 1800);
+                  }
+                }}
+                className="inline-flex items-center rounded-full bg-amber-900 px-3 py-1.5 text-[11px] font-semibold text-white dark:bg-amber-200 dark:text-amber-950"
               >
-                {/* Header */}
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-2xl font-bold">
-                        {pred.assetSymbol}
-                      </span>
-                      <span
-                        className={`badge ${
-                          pred.direction === "up"
-                            ? "badge-success"
-                            : "badge-error"
-                        }`}
-                      >
-                        {pred.direction === "up" ? "UP" : "DOWN"}
-                      </span>
-                      <span className="badge badge-warning">
-                        {pred.status}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-600">
-                      by {formatDate(pred.timeframeEnd)}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-lg font-bold text-primary">
-                      {pred.confidence}%
-                    </div>
-                    <div className="text-xs text-gray-500">confidence</div>
-                  </div>
-                </div>
-
-                {/* Creator Reputation */}
-                <div className="flex items-center gap-4 mb-3 text-sm">
-                  <div>
-                    <span className="text-gray-600">Creator:</span>{" "}
-                    <span className="font-medium">
-                      {pred.creatorReputation.winRate.toFixed(0)}% win rate
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Score:</span>{" "}
-                    <span
-                      className={`font-medium ${
-                        pred.creatorReputation.score >= 0
-                          ? "text-green-600"
-                          : "text-red-600"
-                      }`}
-                    >
-                      {pred.creatorReputation.score > 0 ? "+" : ""}
-                      {pred.creatorReputation.score}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Stakes */}
-                <div className="border-t border-gray-200 pt-3">
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <div className="text-gray-600 mb-1">FOR (creator correct)</div>
-                      <div className="font-bold text-green-600">
-                        {formatWLD(pred.stakeSummary.totalFor)} WLD
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-gray-600 mb-1">AGAINST (creator wrong)</div>
-                      <div className="font-bold text-red-600">
-                        {formatWLD(pred.stakeSummary.totalAgainst)} WLD
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-xs text-gray-500 mt-2">
-                    {pred.stakeSummary.stakeCount} stake
-                    {pred.stakeSummary.stakeCount !== 1 ? "s" : ""}
-                  </div>
-                </div>
-              </Link>
-            ))
-          )}
+                Seed Demo
+              </button>
+            </div>
+            <div className="mt-1 text-[11px] text-amber-800/80 dark:text-amber-200/80">
+              Creates sample predictions, stakes, votes, comments, and rep events.
+            </div>
+          </div>
+        )}
+        <div className="mb-4">
+          <Link
+            href="/create"
+            className="flex items-center justify-between rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/60"
+          >
+            <div>
+              <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                Make a prediction
+              </div>
+              <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                Post a call. Let the market react.
+              </div>
+            </div>
+            <div className="inline-flex items-center rounded-xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white dark:bg-zinc-50 dark:text-zinc-950">
+              Create
+            </div>
+          </Link>
         </div>
+
+        {sortedPredictions.length === 0 ? (
+          <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-center text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950/40 dark:text-zinc-300">
+            {tab === "following"
+              ? "No followed predictions yet. Follow a creator to curate your feed."
+              : "No predictions yet. Follow someone or create one."}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {sortedPredictions.map((pred) => (
+              <PredictionCard
+                key={pred.id}
+                prediction={pred}
+                commentsCount={pred.commentsCount ?? 0}
+                authToken={authToken}
+                currentUserId={user?.id ?? null}
+                onRequireAuth={() => {
+                  setToast("Verify in Alien to vote.");
+                  window.setTimeout(() => setToast(null), 1800);
+                }}
+                onFollowChange={(creatorUserId, nextFollowing) => {
+                  setPredictions((list) =>
+                    list.map((p) =>
+                      p.creatorUserId === creatorUserId
+                        ? { ...p, creatorIsFollowed: nextFollowing }
+                        : p
+                    )
+                  );
+                }}
+                onBet={() => {
+                  setBetPrediction(pred);
+                  setBetOpen(true);
+                }}
+                onComment={() => {
+                  // Demo-first: detail page owns thread/composer today.
+                }}
+              />
+            ))}
+          </div>
+        )}
       </main>
+
+      {toast && (
+        <div className="fixed left-0 right-0 bottom-[calc(env(safe-area-inset-bottom)+12px)] z-40 mx-auto max-w-2xl px-4">
+          <div className="rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white shadow-lg dark:bg-zinc-50 dark:text-zinc-950">
+            {toast}
+          </div>
+        </div>
+      )}
+
+      <BetSheet
+        open={betOpen}
+        prediction={
+          betPrediction
+            ? {
+                id: betPrediction.id,
+                assetSymbol: betPrediction.assetSymbol,
+                direction: betPrediction.direction,
+                stakeSummary: betPrediction.stakeSummary,
+              }
+            : null
+        }
+        authToken={authToken}
+        onClose={() => setBetOpen(false)}
+        onRequireAuth={() => {
+          setToast("Verify in Alien to place demo bets.");
+          window.setTimeout(() => setToast(null), 1800);
+        }}
+        onSuccess={({ stakeSummary }) => {
+          setToast("Bet confirmed (demo).");
+          window.setTimeout(() => setToast(null), 1800);
+          if (!betPrediction) return;
+          setPredictions((list) =>
+            list.map((p) =>
+              p.id === betPrediction.id
+                ? {
+                    ...p,
+                    stakeSummary: {
+                      ...p.stakeSummary,
+                      totalFor: stakeSummary.totalFor,
+                      totalAgainst: stakeSummary.totalAgainst,
+                      stakeCount: stakeSummary.stakeCount,
+                    },
+                  }
+                : p
+            )
+          );
+        }}
+      />
     </div>
   );
 }

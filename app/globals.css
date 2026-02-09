@@ -3,28 +3,28 @@
 @tailwind utilities;
 
 body {
-  @apply bg-gray-50 text-gray-900;
+  @apply bg-gray-50 text-gray-900 dark:bg-zinc-950 dark:text-zinc-50;
 }
 
 @layer components {
   .btn {
-    @apply px-4 py-2 rounded-lg font-medium transition-colors;
+    @apply px-4 py-2 rounded-xl font-semibold transition active:scale-[0.99];
   }
 
   .btn-primary {
-    @apply bg-primary text-white hover:bg-primary/90 active:bg-primary/80;
+    @apply bg-zinc-900 text-white hover:bg-zinc-900/90 dark:bg-zinc-50 dark:text-zinc-950;
   }
 
   .btn-secondary {
-    @apply bg-gray-200 text-gray-900 hover:bg-gray-300 active:bg-gray-400;
+    @apply bg-zinc-100 text-zinc-900 ring-1 ring-inset ring-zinc-200 hover:bg-zinc-50 dark:bg-zinc-900/50 dark:text-zinc-100 dark:ring-zinc-800;
   }
 
   .card {
-    @apply bg-white rounded-lg shadow-sm border border-gray-200 p-4;
+    @apply bg-white rounded-2xl shadow-sm border border-zinc-200 p-4 dark:border-zinc-800 dark:bg-zinc-950/60;
   }
 
   .input {
-    @apply w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent outline-none;
+    @apply w-full px-4 py-2 border border-zinc-300 rounded-xl focus:ring-2 focus:ring-zinc-900 focus:border-transparent outline-none dark:border-zinc-700 dark:bg-zinc-950/40 dark:text-zinc-50 dark:focus:ring-zinc-200;
   }
 
   .badge {
@@ -32,14 +32,14 @@ body {
   }
 
   .badge-success {
-    @apply bg-green-100 text-green-800;
+    @apply bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200;
   }
 
   .badge-warning {
-    @apply bg-yellow-100 text-yellow-800;
+    @apply bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-200;
   }
 
   .badge-error {
-    @apply bg-red-100 text-red-800;
+    @apply bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-200;
   }
 }

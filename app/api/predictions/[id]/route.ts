@@ -1,10 +1,11 @@
 import { db } from "@/lib/db";
-import { predictions, stakes } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { comments, predictions, reputationEvents, stakes, votes } from "@/lib/db/schema";
+import { eq, and, desc, sql } from "drizzle-orm";
 import {
   calculateUserReputation,
   getStakeSummary,
 } from "@/lib/reputation";
+import { authenticate } from "@/lib/auth";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -27,6 +28,7 @@ export async function GET(
   }
 
   try {
+    const maybeUser = await authenticate();
     const rows = await db
       .select()
       .from(predictions)
@@ -45,6 +47,34 @@ export async function GET(
     const creatorRep = await calculateUserReputation(prediction.creatorUserId);
     const stakeSummary = await getStakeSummary(predictionId);
 
+    const commentCountRow = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(comments)
+      .where(eq(comments.predictionId, predictionId));
+    const commentsCount = Number(commentCountRow?.[0]?.count ?? 0);
+
+    const scoreRow = await db
+      .select({ score: sql<number>`coalesce(sum(${votes.value}), 0)` })
+      .from(votes)
+      .where(and(eq(votes.targetType, "prediction"), eq(votes.targetId, predictionId)));
+    const score = Number(scoreRow?.[0]?.score ?? 0);
+
+    let userVote = 0;
+    if (maybeUser) {
+      const myVote = await db
+        .select({ value: votes.value })
+        .from(votes)
+        .where(
+          and(
+            eq(votes.userId, maybeUser.id),
+            eq(votes.targetType, "prediction"),
+            eq(votes.targetId, predictionId)
+          )
+        )
+        .limit(1);
+      userVote = Number(myVote?.[0]?.value ?? 0);
+    }
+
     const stakesList = await db
       .select({
         id: stakes.id,
@@ -61,6 +91,18 @@ export async function GET(
           eq(stakes.paymentStatus, "completed")
         )
       );
+
+    const repEvents = await db
+      .select({
+        id: reputationEvents.id,
+        userId: reputationEvents.userId,
+        outcome: reputationEvents.outcome,
+        deltaScore: reputationEvents.deltaScore,
+        createdAt: reputationEvents.createdAt,
+      })
+      .from(reputationEvents)
+      .where(eq(reputationEvents.predictionId, predictionId))
+      .orderBy(desc(reputationEvents.createdAt));
 
     return Response.json({
       prediction: {
@@ -86,6 +128,9 @@ export async function GET(
           totalAgainst: stakeSummary.totalAgainst,
           stakeCount: stakeSummary.stakeCount,
         },
+        commentsCount,
+        score,
+        userVote,
         stakes: stakesList.map((s) => ({
           id: s.id,
           userId: s.userId,
@@ -93,6 +138,13 @@ export async function GET(
           amount: s.amount,
           currency: s.currency,
           createdAt: s.createdAt.toISOString(),
+        })),
+        reputationEvents: repEvents.map((e) => ({
+          id: e.id,
+          userId: e.userId,
+          outcome: e.outcome,
+          deltaScore: e.deltaScore,
+          createdAt: e.createdAt.toISOString(),
         })),
       },
     });

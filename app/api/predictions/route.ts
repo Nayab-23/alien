@@ -1,6 +1,6 @@
-import { requireAuth } from "@/lib/auth";
+import { authenticate, requireAuth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { predictions } from "@/lib/db/schema";
+import { follows, predictions, votes } from "@/lib/db/schema";
 import {
   validatePredictionInput,
   ValidationError,
@@ -9,7 +9,9 @@ import {
   calculateUserReputation,
   getStakeSummary,
 } from "@/lib/reputation";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
+import { comments } from "@/lib/db/schema";
+import { sql } from "drizzle-orm";
 
 export async function POST(request: Request) {
   const auth = await requireAuth();
@@ -67,6 +69,7 @@ export async function GET(request: Request) {
   const status = url.searchParams.get("status");
 
   try {
+    const maybeUser = await authenticate();
     let rows;
     if (status === "open" || status === "settled" || status === "cancelled") {
       rows = await db
@@ -83,19 +86,65 @@ export async function GET(request: Request) {
         .limit(limit);
     }
 
+    const creatorIds = rows.map((r) => r.creatorUserId);
+    const followingSet = new Set<number>();
+    if (maybeUser && creatorIds.length > 0) {
+      const followRows = await db
+        .select({ followedUserId: follows.followedUserId })
+        .from(follows)
+        .where(
+          and(
+            eq(follows.followerUserId, maybeUser.id),
+            inArray(follows.followedUserId, creatorIds)
+          )
+        );
+      for (const fr of followRows) followingSet.add(fr.followedUserId);
+    }
+
     const results = await Promise.all(
       rows.map(async (p) => {
         const creatorRep = await calculateUserReputation(p.creatorUserId);
         const stakeSummary = await getStakeSummary(p.id);
+        const commentCountRow = await db
+          .select({ count: sql<number>`count(*)` })
+          .from(comments)
+          .where(eq(comments.predictionId, p.id));
+        const commentsCount = Number(commentCountRow?.[0]?.count ?? 0);
+        const scoreRow = await db
+          .select({ score: sql<number>`coalesce(sum(${votes.value}), 0)` })
+          .from(votes)
+          .where(and(eq(votes.targetType, "prediction"), eq(votes.targetId, p.id)));
+        const score = Number(scoreRow?.[0]?.score ?? 0);
+
+        let userVote = 0;
+        if (maybeUser) {
+          const myVote = await db
+            .select({ value: votes.value })
+            .from(votes)
+            .where(
+              and(
+                eq(votes.targetType, "prediction"),
+                eq(votes.targetId, p.id),
+                eq(votes.userId, maybeUser.id)
+              )
+            )
+            .limit(1);
+          userVote = Number(myVote?.[0]?.value ?? 0);
+        }
 
         return {
           id: p.id,
+          creatorUserId: p.creatorUserId,
+          creatorIsFollowed: maybeUser ? followingSet.has(p.creatorUserId) : false,
           assetSymbol: p.assetSymbol,
           direction: p.direction,
           timeframeEnd: Math.floor(p.timeframeEnd.getTime() / 1000),
           confidence: p.confidence,
           status: p.status,
           createdAt: p.createdAt.toISOString(),
+          commentsCount,
+          score,
+          userVote,
           creatorReputation: {
             winRate: creatorRep.winRate,
             totalSettled: creatorRep.settledPredictions,
