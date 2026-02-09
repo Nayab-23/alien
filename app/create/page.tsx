@@ -5,6 +5,7 @@ import { useAuth } from "@/components/MiniKitProvider";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Skeleton } from "@/components/Skeleton";
+import { dataClient } from "@/lib/data/dataClient";
 
 const ASSETS = ["BTC", "ETH", "SOL", "WLD"];
 
@@ -30,28 +31,14 @@ export default function CreatePrediction() {
     const timeframeEnd = Math.floor(Date.now() / 1000) + timeframeDays * 86400;
 
     try {
-      const res = await fetch("/api/predictions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({
-          asset_symbol: assetSymbol,
-          direction,
-          timeframe_end: timeframeEnd,
-          confidence,
-        }),
+      const created = await dataClient.createPrediction({
+        assetSymbol,
+        direction,
+        timeframeEnd,
+        confidence,
+        authToken,
       });
-
-      if (!res.ok) {
-        const data = await res.json();
-        setError(data.error || "Failed to create prediction");
-        return;
-      }
-
-      const data = await res.json();
-      router.push(`/predictions/${data.prediction.id}`);
+      router.push(`/predictions/${created.id}`);
     } catch {
       setError("Network error");
     } finally {

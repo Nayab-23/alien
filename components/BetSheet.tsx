@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { MarketBar } from "@/components/MarketBar";
+import { dataClient } from "@/lib/data/dataClient";
 
 type Side = "for" | "against";
 
@@ -71,9 +72,7 @@ export function BetSheet({
   }) => void;
   onOptimisticRollback?: () => void;
 }) {
-  const demoMode =
-    typeof process !== "undefined" &&
-    process.env.NEXT_PUBLIC_DEMO_MODE !== "false";
+  const demoMode = dataClient.demoMode();
 
   const [side, setSide] = useState<Side>("for");
   const [amount, setAmount] = useState<number>(5);
@@ -151,34 +150,18 @@ export function BetSheet({
       return;
     }
     if (!prediction) return;
-    if (!demoMode) {
-      setError("Demo mode is required for this build.");
-      return;
-    }
 
     setSubmitting(true);
     setError(null);
     if (previewStakeSummary) onOptimistic?.(previewStakeSummary);
     try {
-      const res = await fetch("/api/stakes/demo", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({
-          prediction_id: prediction.id,
-          side,
-          amount: String(amount.toFixed(2)),
-          currency: "DEMO",
-        }),
+      const data = await dataClient.placeStake({
+        predictionId: prediction.id,
+        side,
+        amount,
+        currency: "DEMO",
+        authToken,
       });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        setError(data?.error || "Failed to place demo bet");
-        onOptimisticRollback?.();
-        return;
-      }
       onSuccess({
         stake: {
           id: data.stake.id,
@@ -192,7 +175,7 @@ export function BetSheet({
       });
       onClose();
     } catch {
-      setError("Network error");
+      setError("Failed to place bet");
       onOptimisticRollback?.();
     } finally {
       setSubmitting(false);

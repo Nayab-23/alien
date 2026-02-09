@@ -2,6 +2,7 @@
 
 import { AlienProvider, useAlien } from "@alien_org/react";
 import { createContext, useContext, useEffect, useState } from "react";
+import { isDemoMode } from "@/lib/demoMode";
 
 type AuthContextType = {
   isAuthenticated: boolean;
@@ -62,6 +63,20 @@ function AuthBridge({ children }: { children: React.ReactNode }) {
 }
 
 export function MiniKitProvider({ children }: { children: React.ReactNode }) {
+  if (isDemoMode()) {
+    return (
+      <AuthContext.Provider
+        value={{
+          isAuthenticated: true,
+          user: { id: 1, alienId: "demo:you" },
+          isLoading: false,
+          authToken: "demo",
+        }}
+      >
+        {children}
+      </AuthContext.Provider>
+    );
+  }
   return (
     <AlienProvider>
       <AuthBridge>{children}</AuthBridge>

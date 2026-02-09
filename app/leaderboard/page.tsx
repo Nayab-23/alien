@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Skeleton } from "@/components/Skeleton";
 import { useAuth } from "@/components/MiniKitProvider";
+import { dataClient } from "@/lib/data/dataClient";
 
 type LeaderboardEntry = {
   rank: number;
@@ -31,6 +32,7 @@ export default function LeaderboardPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "week" | "following">("all");
+  const demoMode = dataClient.demoMode();
   const judgeMode =
     typeof process !== "undefined" && process.env.NEXT_PUBLIC_JUDGE_MODE === "true";
   const [toast, setToast] = useState<string | null>(null);
@@ -53,17 +55,14 @@ export default function LeaderboardPage() {
     try {
       const period = filter === "week" ? "week" : "all";
       const scope = filter === "following" ? "following" : "all";
-      const res = await fetch(`/api/leaderboard?limit=50&period=${period}&scope=${scope}`, {
-        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+      const data = await dataClient.listLeaderboard({
+        limit: 50,
+        period,
+        scope,
+        authToken,
       });
-      if (res.ok) {
-        const data = await res.json();
-        setSummary(data.summary || null);
-        setEntries(data.leaderboard || []);
-      } else if (res.status === 401 && filter === "following") {
-        setEntries([]);
-        setSummary({ totalPredictors: 0, totalSettledPredictions: 0, period, scope });
-      }
+      setSummary(data.summary || null);
+      setEntries(data.leaderboard || []);
     } catch (err) {
       console.error("Failed to fetch leaderboard:", err);
     } finally {
@@ -142,11 +141,15 @@ export default function LeaderboardPage() {
               Credibility is earned over settled calls
             </div>
           </div>
-          {judgeMode && judgeOn && (
+          {demoMode ? (
+            <div className="ml-auto inline-flex items-center rounded-full bg-zinc-100 px-2 py-1 text-[11px] font-semibold text-zinc-700 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-900/60 dark:text-zinc-200 dark:ring-zinc-800">
+              Demo Mode
+            </div>
+          ) : judgeMode && judgeOn ? (
             <div className="ml-auto inline-flex items-center rounded-full bg-zinc-100 px-2 py-1 text-[11px] font-semibold text-zinc-700 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-900/60 dark:text-zinc-200 dark:ring-zinc-800">
               Demo
             </div>
-          )}
+          ) : null}
         </div>
       </header>
 
@@ -213,7 +216,7 @@ export default function LeaderboardPage() {
               <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
                 Settle predictions to unlock rankings.
               </div>
-              {judgeMode && (
+              {judgeMode && !demoMode && (
                 <button
                   type="button"
                   onClick={async () => {

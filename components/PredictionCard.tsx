@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { MarketBar } from "@/components/MarketBar";
+import { dataClient } from "@/lib/data/dataClient";
 
 export type FeedPrediction = {
   id: number;
@@ -103,20 +104,12 @@ export function PredictionCard({
     applyOptimistic(nextVote);
 
     try {
-      const res = await fetch("/api/votes", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({
-          target_type: "prediction",
-          target_id: prediction.id,
-          value: nextVote,
-        }),
+      const data = await dataClient.vote({
+        targetType: "prediction",
+        targetId: prediction.id,
+        value: nextVote,
+        authToken,
       });
-      if (!res.ok) throw new Error("vote failed");
-      const data = await res.json();
       setScore(Number(data.score ?? 0));
       setVote((Number(data.userVote ?? 0) as -1 | 0 | 1) ?? 0);
     } catch {
@@ -198,11 +191,11 @@ export function PredictionCard({
                       return;
                     }
                     try {
-                      const res = await fetch(`/api/follow/${creatorId}`, {
-                        method: "POST",
-                        headers: { Authorization: `Bearer ${authToken}` },
+                      await dataClient.follow({
+                        userId: creatorId,
+                        following: true,
+                        authToken,
                       });
-                      if (!res.ok) throw new Error("follow failed");
                       onFollowChange?.(creatorId, true);
                     } catch {
                       // no-op

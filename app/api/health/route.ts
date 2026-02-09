@@ -2,6 +2,15 @@ import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 
 export async function GET() {
+  if (process.env.DEMO_MODE === "true") {
+    return Response.json({
+      status: "healthy",
+      timestamp: new Date().toISOString(),
+      version: "1.0.0",
+      mode: "demo",
+    });
+  }
+
   try {
     // Check database connection
     await db.select().from(users).limit(1);

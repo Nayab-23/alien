@@ -8,6 +8,8 @@ import { PredictionCardExpanded } from "@/components/PredictionCardExpanded";
 import { BetSheet } from "@/components/BetSheet";
 import { SkeletonPredictionCard } from "@/components/SkeletonPredictionCard";
 import { Skeleton, SkeletonText } from "@/components/Skeleton";
+import { dataClient } from "@/lib/data/dataClient";
+import { formatBaseUnits1e18 } from "@/lib/ui/format";
 
 type Stake = {
   id: number;
@@ -82,6 +84,7 @@ export default function PredictionPage() {
   const [predVote, setPredVote] = useState<-1 | 0 | 1>(0);
   const [betOpen, setBetOpen] = useState(false);
   const betRollbackRef = useRef<null | (() => void)>(null);
+  const demoMode = dataClient.demoMode();
   const judgeMode =
     typeof process !== "undefined" && process.env.NEXT_PUBLIC_JUDGE_MODE === "true";
   const [judgeOn, setJudgeOn] = useState(false);
@@ -105,15 +108,10 @@ export default function PredictionPage() {
 
   async function fetchPrediction() {
     try {
-      const res = await fetch(`/api/predictions/${id}`);
-      if (!res.ok) {
-        setError("Prediction not found");
-        return;
-      }
-      const data = await res.json();
-      setPrediction(data.prediction);
-      setPredScore(Number(data.prediction?.score ?? 0));
-      setPredVote((Number(data.prediction?.userVote ?? 0) as -1 | 0 | 1) ?? 0);
+      const pred = await dataClient.getPrediction(id, { authToken });
+      setPrediction(pred as PredictionDetail);
+      setPredScore(Number(pred?.score ?? 0));
+      setPredVote((Number(pred?.userVote ?? 0) as -1 | 0 | 1) ?? 0);
     } catch {
       setError("Failed to load prediction");
     } finally {
@@ -124,12 +122,14 @@ export default function PredictionPage() {
   async function fetchComments() {
     setCommentsLoading(true);
     try {
-      const res = await fetch(`/api/predictions/${id}/comments?limit=100&sort=${commentSort}`, {
-        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+      const predictionId = parseInt(String(id), 10);
+      if (!Number.isFinite(predictionId)) return;
+      const list = await dataClient.listComments(predictionId, {
+        limit: 100,
+        sort: commentSort,
+        authToken,
       });
-      if (!res.ok) return;
-      const data = await res.json();
-      setComments(data.comments || []);
+      setComments(list as Comment[]);
     } catch {
       // ignore
     } finally {
@@ -150,20 +150,12 @@ export default function PredictionPage() {
     setPredVote(nextVote);
 
     try {
-      const res = await fetch("/api/votes", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({
-          target_type: "prediction",
-          target_id: Number(id),
-          value: nextVote,
-        }),
+      const data = await dataClient.vote({
+        targetType: "prediction",
+        targetId: Number(id),
+        value: nextVote,
+        authToken,
       });
-      if (!res.ok) throw new Error("vote failed");
-      const data = await res.json();
       setPredScore(Number(data.score ?? 0));
       setPredVote((Number(data.userVote ?? 0) as -1 | 0 | 1) ?? 0);
     } catch {
@@ -194,20 +186,12 @@ export default function PredictionPage() {
     );
 
     try {
-      const res = await fetch("/api/votes", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({
-          target_type: "comment",
-          target_id: commentId,
-          value: nextVote,
-        }),
+      const data = await dataClient.vote({
+        targetType: "comment",
+        targetId: commentId,
+        value: nextVote,
+        authToken,
       });
-      if (!res.ok) throw new Error("vote failed");
-      const data = await res.json();
       setComments((list) =>
         list.map((c) =>
           c.id === commentId
@@ -232,21 +216,9 @@ export default function PredictionPage() {
     setCommentSubmitting(true);
     setCommentError(null);
     try {
-      const res = await fetch(`/api/predictions/${id}/comments`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({ body }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        setCommentError(data?.error || "Failed to post comment");
-        return;
-      }
-
+      const predictionId = parseInt(String(id), 10);
+      if (!Number.isFinite(predictionId)) return;
+      await dataClient.createComment({ predictionId, body, authToken });
       setCommentBody("");
       await fetchComments();
     } catch {
@@ -254,11 +226,6 @@ export default function PredictionPage() {
     } finally {
       setCommentSubmitting(false);
     }
-  }
-
-  function formatWLD(baseUnits: string): string {
-    const wld = Number(baseUnits) / 1e18;
-    return wld.toFixed(2);
   }
 
   function handleFromUserId(userId: number): string {
@@ -341,7 +308,7 @@ export default function PredictionPage() {
             </div>
             <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
               Prediction #{prediction.id}
-              {judgeMode && judgeOn ? " · Demo" : ""}
+              {demoMode ? " · Demo Mode" : judgeMode && judgeOn ? " · Demo" : ""}
             </div>
           </div>
         </div>
@@ -354,7 +321,7 @@ export default function PredictionPage() {
           onBet={() => setBetOpen(true)}
         />
 
-        {judgeMode && judgeOn && (
+        {judgeMode && judgeOn && !demoMode && (
           <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
             <div className="flex items-center justify-between gap-3">
               <div className="font-semibold">Judge Mode</div>
@@ -471,7 +438,7 @@ export default function PredictionPage() {
                   <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
                     No comments yet. Add the first take, ask for sources, or challenge the market.
                   </div>
-                  {judgeMode && judgeOn && authToken && (
+                  {judgeMode && judgeOn && !demoMode && authToken && (
                     <button
                       type="button"
                       onClick={async () => {
@@ -639,7 +606,7 @@ export default function PredictionPage() {
                                   </span>
                                 </div>
                                 <div className="text-sm font-extrabold tabular-nums text-zinc-900 dark:text-zinc-50">
-                                  {formatWLD(it.stake.amount)} {it.stake.currency}
+                                  {formatBaseUnits1e18(it.stake.amount)} {it.stake.currency}
                                 </div>
                               </div>
                             ) : it.type === "settlement" ? (

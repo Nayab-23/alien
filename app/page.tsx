@@ -6,6 +6,7 @@ import Link from "next/link";
 import { PredictionCard, type FeedPrediction } from "@/components/PredictionCard";
 import { BetSheet } from "@/components/BetSheet";
 import { SkeletonPredictionCard } from "@/components/SkeletonPredictionCard";
+import { dataClient } from "@/lib/data/dataClient";
 
 type Prediction = FeedPrediction & {
   commentsCount?: number;
@@ -50,6 +51,7 @@ export default function Home() {
   const [betOpen, setBetOpen] = useState(false);
   const [betPrediction, setBetPrediction] = useState<Prediction | null>(null);
   const betRollbackRef = useRef<null | (() => void)>(null);
+  const demoMode = dataClient.demoMode();
   const judgeMode =
     typeof process !== "undefined" && process.env.NEXT_PUBLIC_JUDGE_MODE === "true";
   const [judgeOn, setJudgeOn] = useState(false);
@@ -69,6 +71,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!judgeMode || !judgeOn) return;
+    if (demoMode) return;
     if (!authToken) return;
     // One-time autoseed for smooth demos.
     const seeded =
@@ -80,6 +83,7 @@ export default function Home() {
 
     (async () => {
       try {
+        // Seed happens via backend in real mode only.
         const res = await fetch("/api/dev/seed", {
           method: "POST",
           headers: {
@@ -95,19 +99,12 @@ export default function Home() {
         // ignore
       }
     })();
-  }, [authToken, judgeMode, judgeOn, predictions.length]);
+  }, [authToken, demoMode, judgeMode, judgeOn, predictions.length]);
 
   async function fetchPredictions() {
     try {
-      const res = await fetch("/api/predictions?limit=20", {
-        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-      });
-      if (!res.ok) {
-        console.error("Failed to fetch predictions:", res.status);
-        return;
-      }
-      const data = await res.json();
-      setPredictions(data.predictions || []);
+      const list = await dataClient.listPredictions({ limit: 20, authToken });
+      setPredictions(list as Prediction[]);
     } catch (err) {
       console.error("Failed to fetch predictions:", err);
     } finally {
@@ -178,6 +175,11 @@ export default function Home() {
                 <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-800 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900/60">
                   Verified
                 </span>
+                {demoMode && (
+                  <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-1 text-[11px] font-semibold text-zinc-700 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-900/60 dark:text-zinc-200 dark:ring-zinc-800">
+                    Demo Mode
+                  </span>
+                )}
                 {judgeMode && judgeOn && (
                   <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-1 text-[11px] font-semibold text-zinc-700 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-900/60 dark:text-zinc-200 dark:ring-zinc-800">
                     Demo
@@ -270,7 +272,7 @@ export default function Home() {
       </header>
 
       <main className="mx-auto max-w-2xl px-4 pb-[calc(env(safe-area-inset-bottom)+84px)] pt-4">
-        {judgeMode && judgeOn && (
+        {judgeMode && judgeOn && !demoMode && (
           <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
             <div className="flex items-center justify-between gap-3">
               <div className="font-semibold">Judge Mode</div>

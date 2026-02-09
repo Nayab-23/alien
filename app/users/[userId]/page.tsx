@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { useAuth } from "@/components/MiniKitProvider";
 import { PredictionCard, type FeedPrediction } from "@/components/PredictionCard";
 import { Skeleton, SkeletonText } from "@/components/Skeleton";
+import { dataClient } from "@/lib/data/dataClient";
 
 type ProfileStats = {
   winRate: number;
@@ -66,28 +67,14 @@ export default function UserProfilePage() {
   async function fetchAll() {
     setLoading(true);
     try {
-      const [pRes, prRes] = await Promise.all([
-        fetch(`/api/users/${profileUserId}/profile`, {
-          headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-        }),
-        fetch(`/api/users/${profileUserId}/predictions?limit=50`, {
-          headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-        }),
+      const [profileData, preds, comments] = await Promise.all([
+        dataClient.getUserProfile({ userId: profileUserId, authToken }),
+        dataClient.listUserPredictions({ userId: profileUserId, limit: 50, authToken }),
+        dataClient.listUserComments({ userId: profileUserId, limit: 50, authToken }),
       ]);
-
-      if (pRes.ok) setProfile(await pRes.json());
-      if (prRes.ok) {
-        const data = await prRes.json();
-        setPredictions(data.predictions || []);
-      }
-
-      const cRes = await fetch(`/api/users/${profileUserId}/comments?limit=50`, {
-        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-      });
-      if (cRes.ok) {
-        const data = await cRes.json();
-        setUserComments(data.comments || []);
-      }
+      setProfile(profileData as UserProfileResponse);
+      setPredictions(preds as UserPrediction[]);
+      setUserComments(comments as UserComment[]);
     } finally {
       setLoading(false);
     }
@@ -113,13 +100,14 @@ export default function UserProfilePage() {
     );
 
     try {
-      const res = await fetch(`/api/follow/${profile.user.id}`, {
-        method: next ? "POST" : "DELETE",
-        headers: { Authorization: `Bearer ${authToken}` },
+      const data = await dataClient.follow({
+        userId: profile.user.id,
+        following: next,
+        authToken,
       });
-      if (!res.ok) throw new Error("follow failed");
-      const data = await res.json();
-      setProfile((p) => (p ? { ...p, isFollowing: data.following, followerCount: data.followerCount } : p));
+      setProfile((p) =>
+        p ? { ...p, isFollowing: data.following, followerCount: data.followerCount } : p
+      );
     } catch {
       setProfile((p) => (p ? { ...p, isFollowing: !next } : p));
     }
