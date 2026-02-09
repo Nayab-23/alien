@@ -30,4 +30,8 @@ services:
         sync: false
       - key: ADMIN_ALIEN_IDS
         sync: false
+      - key: DEMO_MODE
+        value: "true"
+      - key: NEXT_PUBLIC_DEMO_MODE
+        value: "true"
     healthCheckPath: /api/health
