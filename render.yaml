@@ -1,28 +1,33 @@
+databases:
+  - name: signal-market-db
+    plan: free
+    region: oregon
+    databaseName: signal_market
+    user: signal_market_user
+
 services:
-  # Main Next.js app (handles both frontend and backend API routes)
-  # Uses SQLite for simplicity (hackathon/demo setup)
   - type: web
     name: signal-market
     env: node
     region: oregon
     plan: free
-    buildCommand: npm install && npm run db:migrate && npm run build
+    buildCommand: npm install && npm run db:push && npm run build
     startCommand: npm run start
     envVars:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        value: /opt/render/project/src/sqlite.db
-      - key: NONCE_SECRET
-        generateValue: true
-      - key: APP_ID
+        fromDatabase:
+          name: signal-market-db
+          property: connectionString
+      - key: ALIEN_APP_ID
         sync: false
-      - key: NEXT_PUBLIC_APP_ID
+      - key: ALIEN_API_KEY
         sync: false
-      - key: DEV_PORTAL_API_KEY
+      - key: ALIEN_JWKS_URL
+        value: https://sso.alien-api.com/oauth/jwks
+      - key: ALIEN_WEBHOOK_SECRET
         sync: false
-      - key: RECIPIENT_ADDRESS
-        sync: false
-      - key: ADMIN_ALIEN_SUBJECTS
+      - key: ADMIN_ALIEN_IDS
         sync: false
     healthCheckPath: /api/health

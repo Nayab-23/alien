@@ -3,96 +3,57 @@ import crypto from "node:crypto";
 // ─── Payment Configuration ──────────────────────────────────────────────────
 
 export function getPaymentConfig() {
-  const appId = process.env.APP_ID;
-  const apiKey = process.env.DEV_PORTAL_API_KEY;
-  const recipientAddress = process.env.RECIPIENT_ADDRESS;
+  const appId = process.env.ALIEN_APP_ID;
+  const apiKey = process.env.ALIEN_API_KEY;
 
-  if (!appId || !apiKey || !recipientAddress) {
+  if (!appId || !apiKey) {
     throw new Error(
-      "Payment config incomplete: APP_ID, DEV_PORTAL_API_KEY, and RECIPIENT_ADDRESS required"
+      "Payment config incomplete: ALIEN_APP_ID and ALIEN_API_KEY required"
     );
   }
 
-  return { appId, apiKey, recipientAddress };
+  return { appId, apiKey };
 }
 
-// ─── Transaction Status Polling ─────────────────────────────────────────────
+// ─── Webhook Signature Verification ─────────────────────────────────────────
 
-export type TransactionStatus = "pending" | "mined" | "failed";
-
-export type TransactionDetails = {
-  status: TransactionStatus;
-  transactionHash?: string;
-  reference: string;
-  to: string;
-  amount: string;
-  currency: string;
-};
-
-/**
- * Query transaction status from Developer Portal API.
- * https://developer.worldcoin.org/api/v2/minikit/transaction/{transaction_id}
- */
-export async function pollTransactionStatus(
-  transactionId: string
-): Promise<TransactionDetails | null> {
-  const { appId, apiKey } = getPaymentConfig();
-
-  const url = `https://developer.worldcoin.org/api/v2/minikit/transaction/${transactionId}?app_id=${appId}`;
-
-  try {
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-      },
-    });
-
-    if (!response.ok) {
-      console.error(
-        `Failed to poll transaction ${transactionId}: ${response.status}`
-      );
-      return null;
-    }
-
-    const data = await response.json();
-
-    // Map status
-    let status: TransactionStatus = "pending";
-    if (data.status === "mined") {
-      status = "mined";
-    } else if (data.status === "failed") {
-      status = "failed";
-    }
-
-    return {
-      status,
-      transactionHash: data.transaction_hash,
-      reference: data.reference,
-      to: data.to,
-      amount: data.tokens?.[0]?.token_amount ?? "0",
-      currency: data.tokens?.[0]?.symbol ?? "UNKNOWN",
-    };
-  } catch (err) {
-    console.error(`Error polling transaction ${transactionId}:`, err);
-    return null;
+export async function verifyWebhookSignature(
+  payload: string,
+  signature: string,
+  timestamp: string
+): Promise<boolean> {
+  const webhookSecret = process.env.ALIEN_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    throw new Error("ALIEN_WEBHOOK_SECRET not configured");
   }
+
+  // Verify timestamp is recent (within 5 minutes)
+  const ts = parseInt(timestamp, 10);
+  const now = Math.floor(Date.now() / 1000);
+  if (Math.abs(now - ts) > 300) {
+    return false;
+  }
+
+  // Verify HMAC signature
+  const message = `${timestamp}.${payload}`;
+  const hmac = crypto.createHmac("sha256", webhookSecret);
+  hmac.update(message);
+  const expected = hmac.digest("hex");
+
+  return crypto.timingSafeEqual(
+    Buffer.from(signature),
+    Buffer.from(expected)
+  );
 }
 
 // ─── Reference ID Generation ────────────────────────────────────────────────
 
-/**
- * Generate a unique payment reference (no hyphens, as required by MiniKit).
- */
 export function generatePaymentReference(): string {
   return crypto.randomUUID().replace(/-/g, "");
 }
 
 // ─── Token Amount Conversion ────────────────────────────────────────────────
 
-/**
- * Convert human-readable token amount to base units.
- * WLD has 18 decimals, USDC has 6 decimals.
- */
 export function toBaseUnits(amount: string, currency: "WLD" | "USDC"): string {
   const decimals = currency === "WLD" ? 18 : 6;
   const [whole, frac = ""] = amount.split(".");
@@ -100,9 +61,6 @@ export function toBaseUnits(amount: string, currency: "WLD" | "USDC"): string {
   return whole + paddedFrac;
 }
 
-/**
- * Convert base units to human-readable amount.
- */
 export function fromBaseUnits(
   baseUnits: string,
   currency: "WLD" | "USDC"

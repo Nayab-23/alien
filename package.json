@@ -14,24 +14,25 @@
     "setup": "cp .env.example .env && npm install && npm run db:migrate",
     "deploy:check": "npm run build && curl http://localhost:3000/api/health",
     "test:health": "curl http://localhost:3000/api/health",
-    "render:build": "npm install && npm run db:migrate && npm run build"
+    "render:build": "npm install && npm run db:push && npm run build"
   },
   "dependencies": {
-    "@types/better-sqlite3": "^7.6.13",
+    "@alien_org/auth-client": "^0.2.4",
+    "@alien_org/contract": "^0.2.3",
+    "@alien_org/react": "^0.2.7",
     "@types/node": "^25.2.2",
+    "@types/pg": "^8.16.0",
     "@types/react": "^19.2.13",
     "@types/react-dom": "^19.2.3",
-    "@worldcoin/minikit-js": "^1.9.9",
     "autoprefixer": "^10.4.24",
-    "better-sqlite3": "^12.6.2",
     "drizzle-kit": "^0.31.8",
     "drizzle-orm": "^0.45.1",
     "next": "^16.1.6",
+    "pg": "^8.18.0",
     "postcss": "^8.5.6",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.9.3"
-  },
-  "devDependencies": {}
+  }
 }

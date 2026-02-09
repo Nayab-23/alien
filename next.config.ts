@@ -1,8 +1,6 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["better-sqlite3"],
-
   async headers() {
     return [
       {
@@ -11,10 +9,7 @@ const nextConfig: NextConfig = {
           { key: "Access-Control-Allow-Credentials", value: "true" },
           {
             key: "Access-Control-Allow-Origin",
-            value:
-              process.env.NODE_ENV === "production"
-                ? "https://world.org"
-                : "*",
+            value: "*",
           },
           {
             key: "Access-Control-Allow-Methods",

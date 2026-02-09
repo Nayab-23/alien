@@ -1,24 +1,46 @@
 import { db } from "@/lib/db";
 import { stakes } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { pollTransactionStatus } from "@/lib/payments";
+import { verifyWebhookSignature } from "@/lib/payments";
 
 // ─── POST /api/webhooks/payment ─────────────────────────────────────────────
-// Receives payment notifications from World Developer Portal.
-// NOTE: World/MiniKit does NOT send webhook notifications automatically.
-// Instead, the backend must poll the transaction status using the
-// Developer Portal API after receiving the transaction_id from the frontend.
+// Receives payment notifications from Alien platform.
+// Verifies webhook signature before processing.
 
 export async function POST(request: Request) {
-  let body;
+  let rawBody: string;
 
   try {
-    body = await request.json();
+    rawBody = await request.text();
+  } catch {
+    return Response.json({ error: "Invalid body" }, { status: 400 });
+  }
+
+  // Verify webhook signature
+  const signature = request.headers.get("x-alien-signature") || "";
+  const timestamp = request.headers.get("x-alien-timestamp") || "";
+
+  if (signature && timestamp) {
+    try {
+      const valid = await verifyWebhookSignature(rawBody, signature, timestamp);
+      if (!valid) {
+        console.error("[Webhook] Invalid signature");
+        return Response.json({ error: "Invalid signature" }, { status: 401 });
+      }
+    } catch (err) {
+      console.error("[Webhook] Signature verification error:", err);
+      return Response.json({ error: "Signature verification failed" }, { status: 500 });
+    }
+  }
+
+  let body;
+  try {
+    body = JSON.parse(rawBody);
   } catch {
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { transaction_id, reference } = body;
+  const { transaction_id, reference, status: txStatus } = body;
 
   if (!transaction_id || !reference) {
     return Response.json(
@@ -28,69 +50,47 @@ export async function POST(request: Request) {
   }
 
   console.log(
-    `[Webhook] Received payment notification: tx=${transaction_id}, ref=${reference}`
+    `[Webhook] Received payment notification: tx=${transaction_id}, ref=${reference}, status=${txStatus}`
   );
 
   try {
     // 1. Find pending stake by reference (invoice_id)
-    const stake = db
+    const stakeRows = await db
       .select()
       .from(stakes)
       .where(eq(stakes.invoiceId, reference))
-      .get();
+      .limit(1);
 
-    if (!stake) {
+    if (stakeRows.length === 0) {
       console.warn(`[Webhook] No stake found for reference ${reference}`);
       return Response.json({ error: "Stake not found" }, { status: 404 });
     }
 
-    // 2. Idempotency: if already confirmed, skip
-    if (stake.paymentStatus === "confirmed") {
+    const stake = stakeRows[0];
+
+    // 2. Idempotency: if already completed, skip
+    if (stake.paymentStatus === "completed") {
       console.log(
-        `[Webhook] Stake ${stake.id} already confirmed, skipping`
+        `[Webhook] Stake ${stake.id} already completed, skipping`
       );
       return Response.json({
         status: "ok",
-        message: "Already confirmed",
+        message: "Already completed",
       });
     }
 
-    // 3. Poll transaction status from Developer Portal
-    const txDetails = await pollTransactionStatus(transaction_id);
-
-    if (!txDetails) {
-      console.error(
-        `[Webhook] Failed to poll transaction ${transaction_id}`
-      );
-      return Response.json(
-        { error: "Failed to verify transaction" },
-        { status: 500 }
-      );
-    }
-
-    // 4. Verify reference matches
-    if (txDetails.reference !== reference) {
-      console.error(
-        `[Webhook] Reference mismatch: expected ${reference}, got ${txDetails.reference}`
-      );
-      return Response.json(
-        { error: "Reference mismatch" },
-        { status: 400 }
-      );
-    }
-
-    // 5. Update stake status based on transaction status
-    let newStatus: "confirmed" | "failed" | "initiated" = "initiated";
-    if (txDetails.status === "mined") {
-      newStatus = "confirmed";
-    } else if (txDetails.status === "failed") {
+    // 3. Update stake status based on transaction status
+    let newStatus: "pending" | "completed" | "failed" = "pending";
+    if (txStatus === "completed" || txStatus === "mined") {
+      newStatus = "completed";
+    } else if (txStatus === "failed") {
       newStatus = "failed";
     }
 
-    db.update(stakes)
+    await db
+      .update(stakes)
       .set({ paymentStatus: newStatus })
-      .where(eq(stakes.id, stake.id))
-      .run();
+      .where(eq(stakes.id, stake.id));
 
     console.log(
       `[Webhook] Updated stake ${stake.id} to status=${newStatus}`

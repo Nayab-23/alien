@@ -8,7 +8,6 @@ import {
 import {
   generatePaymentReference,
   toBaseUnits,
-  getPaymentConfig,
 } from "@/lib/payments";
 import { eq } from "drizzle-orm";
 
@@ -36,18 +35,20 @@ export async function POST(request: Request) {
 
   // 3. Check prediction exists and is open
   try {
-    const prediction = db
+    const predictionRows = await db
       .select()
       .from(predictions)
       .where(eq(predictions.id, input.predictionId))
-      .get();
+      .limit(1);
 
-    if (!prediction) {
+    if (predictionRows.length === 0) {
       return Response.json(
         { error: "Prediction not found" },
         { status: 404 }
       );
     }
+
+    const prediction = predictionRows[0];
 
     if (prediction.status !== "open") {
       return Response.json(
@@ -56,9 +57,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check if prediction has expired
-    const now = new Date();
-    if (prediction.timeframeEnd < now) {
+    if (prediction.timeframeEnd < new Date()) {
       return Response.json(
         { error: "Prediction timeframe has expired" },
         { status: 400 }
@@ -67,13 +66,12 @@ export async function POST(request: Request) {
 
     // 4. Generate payment reference
     const reference = generatePaymentReference();
-    const { recipientAddress } = getPaymentConfig();
 
     // 5. Convert amount to base units
     const amountInBaseUnits = toBaseUnits(input.amount, input.currency);
 
     // 6. Create pending stake
-    const stake = db
+    const result = await db
       .insert(stakes)
       .values({
         predictionId: input.predictionId,
@@ -82,12 +80,13 @@ export async function POST(request: Request) {
         amount: amountInBaseUnits,
         currency: input.currency,
         invoiceId: reference,
-        paymentStatus: "initiated",
+        paymentStatus: "pending",
       })
-      .returning()
-      .get();
+      .returning();
 
-    // 7. Return invoice details for frontend to call MiniKit Pay
+    const stake = result[0];
+
+    // 7. Return invoice details for frontend to call usePayment().pay()
     return Response.json(
       {
         stake: {
@@ -100,7 +99,6 @@ export async function POST(request: Request) {
         },
         payment: {
           reference,
-          to: recipientAddress,
           tokens: [
             {
               symbol: input.currency,

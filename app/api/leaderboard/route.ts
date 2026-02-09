@@ -10,13 +10,13 @@ export async function GET(request: Request) {
     : 20;
 
   try {
-    const leaderboard = getLeaderboard(limit);
+    const leaderboard = await getLeaderboard(limit);
 
     return Response.json({
       leaderboard: leaderboard.map((user, idx) => ({
         rank: idx + 1,
         userId: user.userId,
-        alienSubject: user.alienSubject,
+        alienId: user.alienId,
         reputationScore: user.reputationScore,
         winRate: user.winRate,
         totalPredictions: user.totalPredictions,

@@ -1,5 +1,5 @@
-import { cookies } from "next/headers";
-import crypto from "node:crypto";
+import { createAuthClient, type AuthClient } from "@alien_org/auth-client";
+import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
@@ -8,151 +8,87 @@ import { users } from "@/lib/db/schema";
 
 export type SessionUser = {
   id: number;
-  alienSubject: string;
+  alienId: string;
   createdAt: Date;
+  updatedAt: Date;
 };
 
-// ─── Nonce helpers ──────────────────────────────────────────────────────────
-// Nonces are HMAC-signed so they can't be forged client-side.
+// ─── Auth Client (singleton) ────────────────────────────────────────────────
 
-const NONCE_COOKIE = "siwe_nonce";
-const SESSION_COOKIE = "session";
+let authClient: AuthClient | null = null;
 
-function getNonceSecret(): string {
-  const secret = process.env.NONCE_SECRET;
-  if (!secret || secret.length < 16) {
-    throw new Error("NONCE_SECRET env var must be set (min 16 chars)");
+function getAuthClient(): AuthClient {
+  if (!authClient) {
+    authClient = createAuthClient({
+      jwksUrl: process.env.ALIEN_JWKS_URL || "https://sso.alien-api.com/oauth/jwks",
+    });
   }
-  return secret;
+  return authClient;
 }
 
-function signNonce(nonce: string): string {
-  return crypto
-    .createHmac("sha256", getNonceSecret())
-    .update(nonce)
-    .digest("hex");
+// ─── Token Helpers ──────────────────────────────────────────────────────────
+
+export function extractBearerToken(header: string | null): string | null {
+  return header?.startsWith("Bearer ") ? header.slice(7) : null;
 }
 
-/** Generate a nonce, store it in an httpOnly cookie, return the raw value. */
-export async function createNonce(): Promise<string> {
-  const nonce = crypto.randomUUID().replace(/-/g, "");
-  const signature = signNonce(nonce);
-  const cookieStore = await cookies();
-  cookieStore.set(NONCE_COOKIE, `${nonce}.${signature}`, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-    path: "/",
-    maxAge: 600, // 10 minutes
-  });
-  return nonce;
+export async function verifyToken(accessToken: string) {
+  return getAuthClient().verifyToken(accessToken);
 }
 
-/** Read and verify the nonce cookie. Returns the raw nonce or null. */
-export async function consumeNonce(): Promise<string | null> {
-  const cookieStore = await cookies();
-  const raw = cookieStore.get(NONCE_COOKIE)?.value;
-  if (!raw) return null;
+// ─── User Resolution ────────────────────────────────────────────────────────
 
-  const dotIdx = raw.indexOf(".");
-  if (dotIdx === -1) return null;
-
-  const nonce = raw.slice(0, dotIdx);
-  const sig = raw.slice(dotIdx + 1);
-
-  if (signNonce(nonce) !== sig) return null;
-
-  // One-time use: delete after reading
-  cookieStore.delete(NONCE_COOKIE);
-  return nonce;
-}
-
-// ─── Session helpers ────────────────────────────────────────────────────────
-// Session cookie stores the alien_subject (wallet address).
-// Signed with HMAC to prevent tampering.
-
-function signSession(subject: string): string {
-  return crypto
-    .createHmac("sha256", getNonceSecret())
-    .update(subject)
-    .digest("hex");
-}
-
-export async function createSession(alienSubject: string): Promise<void> {
-  const sig = signSession(alienSubject);
-  const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE, `${alienSubject}.${sig}`, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-    path: "/",
-    maxAge: 86400 * 7, // 7 days
-  });
-}
-
-/** Read session cookie and return the alien_subject, or null if invalid. */
-export async function readSession(): Promise<string | null> {
-  const cookieStore = await cookies();
-  const raw = cookieStore.get(SESSION_COOKIE)?.value;
-  if (!raw) return null;
-
-  const dotIdx = raw.indexOf(".");
-  if (dotIdx === -1) return null;
-
-  const subject = raw.slice(0, dotIdx);
-  const sig = raw.slice(dotIdx + 1);
-
-  if (signSession(subject) !== sig) return null;
-  return subject;
-}
-
-// ─── User resolution ────────────────────────────────────────────────────────
-
-/** Find or create a user row from alien_subject. Returns the full user. */
-export function resolveUser(alienSubject: string): SessionUser {
-  // Upsert: insert if not exists, then select
-  db.insert(users)
-    .values({ alienSubject })
-    .onConflictDoNothing({ target: users.alienSubject })
-    .run();
-
-  const row = db
+export async function findOrCreateUser(alienId: string): Promise<SessionUser> {
+  const existing = await db
     .select()
     .from(users)
-    .where(eq(users.alienSubject, alienSubject))
-    .get();
+    .where(eq(users.alienId, alienId))
+    .limit(1);
 
-  if (!row) {
-    throw new Error("Failed to resolve user after upsert");
+  if (existing.length > 0) {
+    await db
+      .update(users)
+      .set({ updatedAt: new Date() })
+      .where(eq(users.alienId, alienId));
+
+    return {
+      id: existing[0].id,
+      alienId: existing[0].alienId,
+      createdAt: existing[0].createdAt,
+      updatedAt: new Date(),
+    };
   }
 
+  const inserted = await db
+    .insert(users)
+    .values({ alienId })
+    .returning();
+
   return {
-    id: row.id,
-    alienSubject: row.alienSubject,
-    createdAt: row.createdAt,
+    id: inserted[0].id,
+    alienId: inserted[0].alienId,
+    createdAt: inserted[0].createdAt,
+    updatedAt: inserted[0].updatedAt,
   };
 }
 
-// ─── Auth middleware ─────────────────────────────────────────────────────────
+// ─── Auth Middleware ─────────────────────────────────────────────────────────
 
-/**
- * Verify the session and resolve the user.
- * Returns the user or null (caller decides whether to 401).
- */
 export async function authenticate(): Promise<SessionUser | null> {
-  const subject = await readSession();
-  if (!subject) return null;
   try {
-    return resolveUser(subject);
+    const headerStore = await headers();
+    const token = extractBearerToken(headerStore.get("Authorization"));
+    if (!token) return null;
+
+    const { sub } = await verifyToken(token);
+    if (!sub) return null;
+
+    return await findOrCreateUser(sub);
   } catch {
     return null;
   }
 }
 
-/**
- * Same as authenticate() but throws-friendly for route handlers:
- * returns { user } or { error: Response }.
- */
 export async function requireAuth(): Promise<
   { user: SessionUser; error?: never } | { user?: never; error: Response }
 > {
@@ -160,7 +96,7 @@ export async function requireAuth(): Promise<
   if (!user) {
     return {
       error: Response.json(
-        { error: "Unauthorized" },
+        { error: "Missing or invalid authorization token" },
         { status: 401 }
       ),
     };

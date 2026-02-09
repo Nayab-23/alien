@@ -17,7 +17,7 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 
   try {
-    const stake = db
+    const rows = await db
       .select({
         id: stakes.id,
         paymentStatus: stakes.paymentStatus,
@@ -29,11 +29,13 @@ export async function GET(_request: Request, context: RouteContext) {
       })
       .from(stakes)
       .where(eq(stakes.id, stakeId))
-      .get();
+      .limit(1);
 
-    if (!stake) {
+    if (rows.length === 0) {
       return Response.json({ error: "Stake not found" }, { status: 404 });
     }
+
+    const stake = rows[0];
 
     return Response.json({
       stake: {

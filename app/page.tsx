@@ -25,7 +25,7 @@ type Prediction = {
 };
 
 export default function Home() {
-  const { isAuthenticated, user, isLoading, signIn } = useAuth();
+  const { isAuthenticated, user, isLoading, authToken } = useAuth();
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -75,11 +75,10 @@ export default function Home() {
         <div className="text-center max-w-md">
           <h1 className="text-3xl font-bold mb-4">Signal Market</h1>
           <p className="text-gray-600 mb-6">
-            Bet on price predictions with verified humans. Powered by World ID.
+            Bet on price predictions with verified humans. Open this app inside Alien to get started.
           </p>
-          <button onClick={signIn} className="btn btn-primary w-full">
-            Sign In with World ID
-          </button>
+          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="text-sm text-gray-500 mt-4">Waiting for Alien bridge...</p>
         </div>
       </div>
     );
@@ -92,7 +91,7 @@ export default function Home() {
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
           <h1 className="text-xl font-bold">Signal Market</h1>
           <div className="flex items-center gap-2">
-            <span className="badge badge-success">✓ Verified Human</span>
+            <span className="badge badge-success">Verified</span>
             <Link href="/leaderboard" className="text-primary font-medium">
               Leaderboard
             </Link>
@@ -137,7 +136,7 @@ export default function Home() {
                             : "badge-error"
                         }`}
                       >
-                        {pred.direction === "up" ? "↑ UP" : "↓ DOWN"}
+                        {pred.direction === "up" ? "UP" : "DOWN"}
                       </span>
                       <span className="badge badge-warning">
                         {pred.status}

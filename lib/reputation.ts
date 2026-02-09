@@ -12,7 +12,7 @@ import {
 
 export type UserReputation = {
   userId: number;
-  alienSubject: string;
+  alienId: string;
   totalPredictions: number;
   settledPredictions: number;
   wins: number;
@@ -46,38 +46,33 @@ export type PredictionWithReputation = {
 
 // ─── Reputation Calculation ─────────────────────────────────────────────────
 
-/**
- * Calculate reputation for a single user.
- * Simple MVP metric: weighted by confidence and recency.
- */
-export function calculateUserReputation(userId: number): UserReputation {
-  // Get user info
-  const user = db
+export async function calculateUserReputation(userId: number): Promise<UserReputation> {
+  const userRows = await db
     .select()
     .from(users)
     .where(eq(users.id, userId))
-    .get();
+    .limit(1);
 
-  if (!user) {
+  if (userRows.length === 0) {
     throw new Error("User not found");
   }
 
-  // Count predictions
-  const totalPredictions = db
+  const user = userRows[0];
+
+  const countResult = await db
     .select({ count: sql<number>`count(*)` })
     .from(predictions)
-    .where(eq(predictions.creatorUserId, userId))
-    .get()?.count ?? 0;
+    .where(eq(predictions.creatorUserId, userId));
 
-  // Get reputation events (only exist for settled predictions)
-  const events = db
+  const totalPredictions = countResult[0]?.count ?? 0;
+
+  const events = await db
     .select({
       outcome: reputationEvents.outcome,
       deltaScore: reputationEvents.deltaScore,
     })
     .from(reputationEvents)
-    .where(eq(reputationEvents.userId, userId))
-    .all();
+    .where(eq(reputationEvents.userId, userId));
 
   const wins = events.filter((e) => e.outcome === "win").length;
   const losses = events.filter((e) => e.outcome === "loss").length;
@@ -89,7 +84,7 @@ export function calculateUserReputation(userId: number): UserReputation {
 
   return {
     userId,
-    alienSubject: user.alienSubject,
+    alienId: user.alienId,
     totalPredictions,
     settledPredictions,
     wins,
@@ -99,12 +94,10 @@ export function calculateUserReputation(userId: number): UserReputation {
   };
 }
 
-/**
- * Get leaderboard — top users by reputation score.
- */
-export function getLeaderboard(limit: number = 20): UserReputation[] {
-  // Aggregate reputation events per user
-  const userScores = db
+// ─── Leaderboard ────────────────────────────────────────────────────────────
+
+export async function getLeaderboard(limit: number = 20): Promise<UserReputation[]> {
+  const userScores = await db
     .select({
       userId: reputationEvents.userId,
       totalScore: sql<number>`sum(${reputationEvents.deltaScore})`,
@@ -115,36 +108,38 @@ export function getLeaderboard(limit: number = 20): UserReputation[] {
     .from(reputationEvents)
     .groupBy(reputationEvents.userId)
     .orderBy(sql`sum(${reputationEvents.deltaScore}) desc`)
-    .limit(limit)
-    .all();
+    .limit(limit);
 
-  // Hydrate with user info + total predictions
-  return userScores.map((row) => {
-    const user = db
+  const results: UserReputation[] = [];
+
+  for (const row of userScores) {
+    const userRows = await db
       .select()
       .from(users)
       .where(eq(users.id, row.userId))
-      .get();
+      .limit(1);
 
-    const totalPredictions = db
+    const countResult = await db
       .select({ count: sql<number>`count(*)` })
       .from(predictions)
-      .where(eq(predictions.creatorUserId, row.userId))
-      .get()?.count ?? 0;
+      .where(eq(predictions.creatorUserId, row.userId));
 
+    const totalPredictions = countResult[0]?.count ?? 0;
     const winRate = row.settled > 0 ? (row.wins / row.settled) * 100 : 0;
 
-    return {
+    results.push({
       userId: row.userId,
-      alienSubject: user?.alienSubject ?? "unknown",
+      alienId: userRows[0]?.alienId ?? "unknown",
       totalPredictions,
       settledPredictions: row.settled,
       wins: row.wins,
       losses: row.losses,
       winRate: Math.round(winRate * 10) / 10,
       reputationScore: row.totalScore,
-    };
-  });
+    });
+  }
+
+  return results;
 }
 
 // ─── Stake Aggregation ──────────────────────────────────────────────────────
@@ -155,11 +150,8 @@ export type StakeSummary = {
   stakeCount: number;
 };
 
-/**
- * Aggregate stakes for a prediction (only confirmed payments).
- */
-export function getStakeSummary(predictionId: number): StakeSummary {
-  const stakes_ = db
+export async function getStakeSummary(predictionId: number): Promise<StakeSummary> {
+  const stakeRows = await db
     .select({
       side: stakes.side,
       amount: stakes.amount,
@@ -168,15 +160,14 @@ export function getStakeSummary(predictionId: number): StakeSummary {
     .where(
       and(
         eq(stakes.predictionId, predictionId),
-        eq(stakes.paymentStatus, "confirmed")
+        eq(stakes.paymentStatus, "completed")
       )
-    )
-    .all();
+    );
 
   let totalFor = 0n;
   let totalAgainst = 0n;
 
-  for (const stake of stakes_) {
+  for (const stake of stakeRows) {
     const amount = BigInt(stake.amount);
     if (stake.side === "for") {
       totalFor += amount;
@@ -188,6 +179,6 @@ export function getStakeSummary(predictionId: number): StakeSummary {
   return {
     totalFor: totalFor.toString(),
     totalAgainst: totalAgainst.toString(),
-    stakeCount: stakes_.length,
+    stakeCount: stakeRows.length,
   };
 }

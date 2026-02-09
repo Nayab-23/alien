@@ -4,14 +4,12 @@ import { users } from "@/lib/db/schema";
 export async function GET() {
   try {
     // Check database connection
-    db.select().from(users).limit(1).all();
+    await db.select().from(users).limit(1);
 
     // Check required env vars
     const requiredEnv = [
-      "NONCE_SECRET",
-      "APP_ID",
-      "DEV_PORTAL_API_KEY",
-      "RECIPIENT_ADDRESS",
+      "DATABASE_URL",
+      "ALIEN_APP_ID",
     ];
 
     const missing = requiredEnv.filter((key) => !process.env[key]);

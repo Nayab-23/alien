@@ -13,7 +13,7 @@ export async function POST(_request: Request, context: RouteContext) {
   if (auth.error) return auth.error;
 
   // 2. Admin check
-  if (!isAdmin(auth.user.alienSubject)) {
+  if (!isAdmin(auth.user.alienId)) {
     return Response.json(
       { error: "Forbidden: Admin access required" },
       { status: 403 }
@@ -44,7 +44,7 @@ export async function POST(_request: Request, context: RouteContext) {
         creatorReputationDelta: result.creatorReputationDelta,
         winners: result.winners.map((w) => ({
           userId: w.userId,
-          alienSubject: w.alienSubject,
+          alienId: w.alienId,
           side: w.side,
           stakeAmount: w.stakeAmount,
           currency: w.currency,
@@ -53,7 +53,7 @@ export async function POST(_request: Request, context: RouteContext) {
         })),
         losers: result.losers.map((l) => ({
           userId: l.userId,
-          alienSubject: l.alienSubject,
+          alienId: l.alienId,
           side: l.side,
           stakeAmount: l.stakeAmount,
           currency: l.currency,

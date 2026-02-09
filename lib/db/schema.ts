@@ -1,22 +1,17 @@
-import { sqliteTable, text, integer, uniqueIndex, index } from "drizzle-orm/sqlite-core";
-import { sql } from "drizzle-orm";
+import { pgTable, text, integer, uniqueIndex, index, serial, timestamp } from "drizzle-orm/pg-core";
 
 // ─── users ──────────────────────────────────────────────────────────────────
-// Anchored to Alien (World ID) verified identity via alien_subject.
-// alien_subject is the nullifier hash — unique per human, survives wallet changes.
-export const users = sqliteTable(
+// Anchored to Alien verified identity via alienId (JWT sub claim).
+export const users = pgTable(
   "users",
   {
-    id: integer("id").primaryKey({ autoIncrement: true }),
-    alienSubject: text("alien_subject").notNull(),
-    createdAt: integer("created_at", { mode: "timestamp" })
-      .notNull()
-      .default(sql`(unixepoch())`),
+    id: serial("id").primaryKey(),
+    alienId: text("alien_id").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
-    alienSubjectIdx: uniqueIndex("users_alien_subject_uniq").on(
-      table.alienSubject
-    ),
+    alienIdIdx: uniqueIndex("users_alien_id_uniq").on(table.alienId),
   })
 );
 
@@ -27,27 +22,23 @@ export type PredictionStatus = (typeof predictionStatus)[number];
 export const predictionDirection = ["up", "down"] as const;
 export type PredictionDirection = (typeof predictionDirection)[number];
 
-export const predictions = sqliteTable(
+export const predictions = pgTable(
   "predictions",
   {
-    id: integer("id").primaryKey({ autoIncrement: true }),
+    id: serial("id").primaryKey(),
     creatorUserId: integer("creator_user_id")
       .notNull()
       .references(() => users.id),
-    assetSymbol: text("asset_symbol").notNull(), // e.g. "ETH", "BTC", "WLD"
+    assetSymbol: text("asset_symbol").notNull(),
     direction: text("direction", { enum: predictionDirection }).notNull(),
-    timeframeEnd: integer("timeframe_end", { mode: "timestamp" }).notNull(),
-    confidence: integer("confidence").notNull(), // 1-100
+    timeframeEnd: timestamp("timeframe_end").notNull(),
+    confidence: integer("confidence").notNull(),
     status: text("status", { enum: predictionStatus })
       .notNull()
       .default("open"),
-    settlementPrice: text("settlement_price"), // string to avoid float precision loss
-    settlementTimestamp: integer("settlement_timestamp", {
-      mode: "timestamp",
-    }),
-    createdAt: integer("created_at", { mode: "timestamp" })
-      .notNull()
-      .default(sql`(unixepoch())`),
+    settlementPrice: text("settlement_price"),
+    settlementTimestamp: timestamp("settlement_timestamp"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => ({
     creatorIdx: index("predictions_creator_idx").on(table.creatorUserId),
@@ -62,13 +53,13 @@ export const predictions = sqliteTable(
 export const stakeSide = ["for", "against"] as const;
 export type StakeSide = (typeof stakeSide)[number];
 
-export const paymentStatus = ["initiated", "confirmed", "failed"] as const;
+export const paymentStatus = ["pending", "completed", "failed"] as const;
 export type PaymentStatus = (typeof paymentStatus)[number];
 
-export const stakes = sqliteTable(
+export const stakes = pgTable(
   "stakes",
   {
-    id: integer("id").primaryKey({ autoIncrement: true }),
+    id: serial("id").primaryKey(),
     predictionId: integer("prediction_id")
       .notNull()
       .references(() => predictions.id),
@@ -76,21 +67,19 @@ export const stakes = sqliteTable(
       .notNull()
       .references(() => users.id),
     side: text("side", { enum: stakeSide }).notNull(),
-    amount: text("amount").notNull(), // smallest token units as string
-    currency: text("currency").notNull(), // e.g. "WLD", "USDC"
+    amount: text("amount").notNull(),
+    currency: text("currency").notNull(),
+    network: text("network").notNull().default("solana"),
     invoiceId: text("invoice_id"),
     paymentStatus: text("payment_status", { enum: paymentStatus })
       .notNull()
-      .default("initiated"),
-    createdAt: integer("created_at", { mode: "timestamp" })
-      .notNull()
-      .default(sql`(unixepoch())`),
+      .default("pending"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => ({
     invoiceIdIdx: uniqueIndex("stakes_invoice_id_uniq").on(table.invoiceId),
     predictionIdx: index("stakes_prediction_idx").on(table.predictionId),
     userIdx: index("stakes_user_idx").on(table.userId),
-    // Prevent same user staking the same side on the same prediction twice
     userPredictionSideIdx: uniqueIndex("stakes_user_prediction_side_uniq").on(
       table.userId,
       table.predictionId,
@@ -100,14 +89,13 @@ export const stakes = sqliteTable(
 );
 
 // ─── reputation_events ──────────────────────────────────────────────────────
-// Immutable audit log. One row per user per settled prediction.
 export const reputationOutcome = ["win", "loss", "neutral"] as const;
 export type ReputationOutcome = (typeof reputationOutcome)[number];
 
-export const reputationEvents = sqliteTable(
+export const reputationEvents = pgTable(
   "reputation_events",
   {
-    id: integer("id").primaryKey({ autoIncrement: true }),
+    id: serial("id").primaryKey(),
     userId: integer("user_id")
       .notNull()
       .references(() => users.id),
@@ -115,17 +103,14 @@ export const reputationEvents = sqliteTable(
       .notNull()
       .references(() => predictions.id),
     outcome: text("outcome", { enum: reputationOutcome }).notNull(),
-    deltaScore: integer("delta_score").notNull(), // positive or negative
-    createdAt: integer("created_at", { mode: "timestamp" })
-      .notNull()
-      .default(sql`(unixepoch())`),
+    deltaScore: integer("delta_score").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => ({
     userIdx: index("reputation_events_user_idx").on(table.userId),
     predictionIdx: index("reputation_events_prediction_idx").on(
       table.predictionId
     ),
-    // One reputation event per user per prediction
     userPredictionIdx: uniqueIndex(
       "reputation_events_user_prediction_uniq"
     ).on(table.userId, table.predictionId),

@@ -1,22 +1,24 @@
-import Database from "better-sqlite3";
-import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
+import { drizzle } from "drizzle-orm/node-postgres";
+import pg from "pg";
 import * as schema from "./schema";
 
-let _db: BetterSQLite3Database<typeof schema> | null = null;
+const { Pool } = pg;
 
-export function getDb(): BetterSQLite3Database<typeof schema> {
+type DbType = ReturnType<typeof drizzle<typeof schema>>;
+
+let _db: DbType | null = null;
+
+export function getDb(): DbType {
   if (!_db) {
-    const url = process.env.DATABASE_URL || "sqlite.db";
-    const sqlite = new Database(url);
-    sqlite.pragma("journal_mode = WAL");
-    sqlite.pragma("foreign_keys = ON");
-    _db = drizzle(sqlite, { schema });
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+    });
+    _db = drizzle(pool, { schema });
   }
   return _db;
 }
 
-// Convenience re-export for existing call sites
-export const db = new Proxy({} as BetterSQLite3Database<typeof schema>, {
+export const db = new Proxy({} as DbType, {
   get(_target, prop, receiver) {
     return Reflect.get(getDb(), prop, receiver);
   },

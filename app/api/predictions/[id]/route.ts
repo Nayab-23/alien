@@ -27,28 +27,25 @@ export async function GET(
   }
 
   try {
-    // Fetch prediction
-    const prediction = db
+    const rows = await db
       .select()
       .from(predictions)
       .where(eq(predictions.id, predictionId))
-      .get();
+      .limit(1);
 
-    if (!prediction) {
+    if (rows.length === 0) {
       return Response.json(
         { error: "Prediction not found" },
         { status: 404 }
       );
     }
 
-    // Creator reputation
-    const creatorRep = calculateUserReputation(prediction.creatorUserId);
+    const prediction = rows[0];
 
-    // Stake summary
-    const stakeSummary = getStakeSummary(predictionId);
+    const creatorRep = await calculateUserReputation(prediction.creatorUserId);
+    const stakeSummary = await getStakeSummary(predictionId);
 
-    // Fetch individual confirmed stakes (for detail view)
-    const stakesList = db
+    const stakesList = await db
       .select({
         id: stakes.id,
         userId: stakes.userId,
@@ -61,10 +58,9 @@ export async function GET(
       .where(
         and(
           eq(stakes.predictionId, predictionId),
-          eq(stakes.paymentStatus, "confirmed")
+          eq(stakes.paymentStatus, "completed")
         )
-      )
-      .all();
+      );
 
     return Response.json({
       prediction: {

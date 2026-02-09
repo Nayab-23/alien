@@ -5,15 +5,11 @@ export async function GET() {
     const auth = await requireAuth();
     if (auth.error) return auth.error;
 
-    const createdAt = auth.user.createdAt instanceof Date
-      ? auth.user.createdAt.toISOString()
-      : new Date(auth.user.createdAt as unknown as number * 1000).toISOString();
-
     return Response.json({
       user: {
         id: auth.user.id,
-        alienSubject: auth.user.alienSubject,
-        createdAt,
+        alienId: auth.user.alienId,
+        createdAt: auth.user.createdAt.toISOString(),
       },
     });
   } catch (err) {
