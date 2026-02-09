@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { MarketBar } from "@/components/MarketBar";
 
 type Side = "for" | "against";
 
@@ -28,7 +29,9 @@ function numberToBase(amount: number): string {
 
 function fmtMoney(n: number): string {
   if (!Number.isFinite(n)) return "$0.00";
-  return n >= 1000 ? `$${n.toFixed(0)}` : `$${n.toFixed(2)}`;
+  if (n >= 1000) return `$${n.toFixed(0)}`;
+  if (n >= 10) return `$${n.toFixed(0)}`;
+  return `$${n.toFixed(2)}`;
 }
 
 export function BetSheet({
@@ -38,6 +41,8 @@ export function BetSheet({
   onClose,
   onSuccess,
   onRequireAuth,
+  onOptimistic,
+  onOptimisticRollback,
 }: {
   open: boolean;
   prediction: BetSheetPrediction | null;
@@ -59,6 +64,12 @@ export function BetSheet({
     };
   }) => void;
   onRequireAuth?: () => void;
+  onOptimistic?: (stakeSummary: {
+    totalFor: string;
+    totalAgainst: string;
+    stakeCount: number;
+  }) => void;
+  onOptimisticRollback?: () => void;
 }) {
   const demoMode =
     typeof process !== "undefined" &&
@@ -69,6 +80,14 @@ export function BetSheet({
   const [custom, setCustom] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function addBaseUnits(a: string, b: string): string {
+    try {
+      return (BigInt(a) + BigInt(b)).toString();
+    } catch {
+      return a;
+    }
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -96,6 +115,22 @@ export function BetSheet({
     };
   }, [totals]);
 
+  const previewStakeSummary = useMemo(() => {
+    if (!prediction) return null;
+    const amtBase = numberToBase(amount);
+    return {
+      totalFor:
+        side === "for"
+          ? addBaseUnits(prediction.stakeSummary.totalFor, amtBase)
+          : prediction.stakeSummary.totalFor,
+      totalAgainst:
+        side === "against"
+          ? addBaseUnits(prediction.stakeSummary.totalAgainst, amtBase)
+          : prediction.stakeSummary.totalAgainst,
+      stakeCount: prediction.stakeSummary.stakeCount + 1,
+    };
+  }, [amount, prediction, side]);
+
   const potentialPayout = useMemo(() => {
     if (!prediction) return 0;
     const forPool = totals.forUsd;
@@ -115,6 +150,7 @@ export function BetSheet({
       onRequireAuth?.();
       return;
     }
+    if (!prediction) return;
     if (!demoMode) {
       setError("Demo mode is required for this build.");
       return;
@@ -122,6 +158,7 @@ export function BetSheet({
 
     setSubmitting(true);
     setError(null);
+    if (previewStakeSummary) onOptimistic?.(previewStakeSummary);
     try {
       const res = await fetch("/api/stakes/demo", {
         method: "POST",
@@ -139,6 +176,7 @@ export function BetSheet({
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         setError(data?.error || "Failed to place demo bet");
+        onOptimisticRollback?.();
         return;
       }
       onSuccess({
@@ -155,6 +193,7 @@ export function BetSheet({
       onClose();
     } catch {
       setError("Network error");
+      onOptimisticRollback?.();
     } finally {
       setSubmitting(false);
     }
@@ -247,22 +286,12 @@ export function BetSheet({
                 For {implied.forPct}% · Against {implied.againstPct}%
               </div>
             </div>
-            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-rose-200/70 dark:bg-rose-950/60">
-              <div className="h-full bg-emerald-500" style={{ width: `${implied.forPct}%` }} />
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
-              <div className="rounded-xl bg-white p-2 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:ring-zinc-800">
-                <div className="font-semibold text-emerald-700 dark:text-emerald-300">For pool</div>
-                <div className="mt-0.5 font-extrabold text-zinc-900 dark:text-zinc-50 tabular-nums">
-                  {fmtMoney(totals.forUsd)}
-                </div>
-              </div>
-              <div className="rounded-xl bg-white p-2 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:ring-zinc-800">
-                <div className="font-semibold text-rose-700 dark:text-rose-300">Against pool</div>
-                <div className="mt-0.5 font-extrabold text-zinc-900 dark:text-zinc-50 tabular-nums">
-                  {fmtMoney(totals.againstUsd)}
-                </div>
-              </div>
+            <div className="mt-2">
+              <MarketBar
+                totalForBaseUnits={prediction.stakeSummary.totalFor}
+                totalAgainstBaseUnits={prediction.stakeSummary.totalAgainst}
+                compact
+              />
             </div>
           </div>
 
@@ -301,6 +330,24 @@ export function BetSheet({
 
           <div className="mt-4 rounded-2xl bg-zinc-50 p-3 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:ring-zinc-800">
             <div className="flex items-center justify-between text-xs text-zinc-600 dark:text-zinc-300">
+              <div className="font-semibold">Preview (after your bet)</div>
+              <div className="tabular-nums">
+                {side === "for" ? "For" : "Against"} +{fmtMoney(amount)}
+              </div>
+            </div>
+            {previewStakeSummary && (
+              <div className="mt-2">
+                <MarketBar
+                  totalForBaseUnits={previewStakeSummary.totalFor}
+                  totalAgainstBaseUnits={previewStakeSummary.totalAgainst}
+                  compact
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="mt-4 rounded-2xl bg-zinc-50 p-3 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:ring-zinc-800">
+            <div className="flex items-center justify-between text-xs text-zinc-600 dark:text-zinc-300">
               <div className="font-semibold">Potential payout (simulated)</div>
               <div className="font-extrabold text-zinc-900 dark:text-zinc-50 tabular-nums">
                 {fmtMoney(potentialPayout)}
@@ -332,4 +379,3 @@ export function BetSheet({
     </div>
   );
 }
-

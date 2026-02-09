@@ -1,4 +1,4 @@
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, gte, inArray, desc, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   predictions,
@@ -19,6 +19,7 @@ export type UserReputation = {
   losses: number;
   winRate: number; // 0-100
   reputationScore: number;
+  streak?: number;
 };
 
 export type PredictionWithReputation = {
@@ -97,7 +98,23 @@ export async function calculateUserReputation(userId: number): Promise<UserReput
 // ─── Leaderboard ────────────────────────────────────────────────────────────
 
 export async function getLeaderboard(limit: number = 20): Promise<UserReputation[]> {
-  const userScores = await db
+  return getLeaderboardFiltered(limit);
+}
+
+export async function getLeaderboardFiltered(
+  limit: number = 20,
+  opts?: { since?: Date; userIds?: number[] }
+): Promise<UserReputation[]> {
+  const where =
+    opts?.since && opts?.userIds?.length
+      ? and(gte(reputationEvents.createdAt, opts.since), inArray(reputationEvents.userId, opts.userIds))
+      : opts?.since
+        ? gte(reputationEvents.createdAt, opts.since)
+        : opts?.userIds?.length
+          ? inArray(reputationEvents.userId, opts.userIds)
+          : undefined;
+
+  const base = db
     .select({
       userId: reputationEvents.userId,
       totalScore: sql<number>`sum(${reputationEvents.deltaScore})`,
@@ -105,7 +122,9 @@ export async function getLeaderboard(limit: number = 20): Promise<UserReputation
       losses: sql<number>`sum(case when ${reputationEvents.outcome} = 'loss' then 1 else 0 end)`,
       settled: sql<number>`count(*)`,
     })
-    .from(reputationEvents)
+    .from(reputationEvents);
+
+  const userScores = await (where ? base.where(where) : base)
     .groupBy(reputationEvents.userId)
     .orderBy(sql`sum(${reputationEvents.deltaScore}) desc`)
     .limit(limit);
@@ -126,6 +145,7 @@ export async function getLeaderboard(limit: number = 20): Promise<UserReputation
 
     const totalPredictions = countResult[0]?.count ?? 0;
     const winRate = row.settled > 0 ? (row.wins / row.settled) * 100 : 0;
+    const streak = await getUserStreak(row.userId, opts?.since);
 
     results.push({
       userId: row.userId,
@@ -136,10 +156,42 @@ export async function getLeaderboard(limit: number = 20): Promise<UserReputation
       losses: row.losses,
       winRate: Math.round(winRate * 10) / 10,
       reputationScore: row.totalScore,
+      streak,
     });
   }
 
   return results;
+}
+
+async function getUserStreak(userId: number, since?: Date): Promise<number> {
+  const base = db
+    .select({
+      outcome: reputationEvents.outcome,
+      createdAt: reputationEvents.createdAt,
+    })
+    .from(reputationEvents);
+
+  const rows = await (since
+    ? base
+        .where(and(eq(reputationEvents.userId, userId), gte(reputationEvents.createdAt, since)))
+        .orderBy(desc(reputationEvents.createdAt))
+        .limit(20)
+    : base
+        .where(eq(reputationEvents.userId, userId))
+        .orderBy(desc(reputationEvents.createdAt))
+        .limit(20));
+
+  let streak = 0;
+  let mode: "win" | "loss" | null = null;
+
+  for (const r of rows) {
+    if (r.outcome !== "win" && r.outcome !== "loss") continue;
+    if (!mode) mode = r.outcome;
+    if (r.outcome !== mode) break;
+    streak += mode === "win" ? 1 : -1;
+  }
+
+  return streak;
 }
 
 // ─── Stake Aggregation ──────────────────────────────────────────────────────

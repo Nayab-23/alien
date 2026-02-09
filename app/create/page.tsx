@@ -115,13 +115,13 @@ export default function CreatePrediction() {
         <form onSubmit={handleSubmit} className="space-y-3">
           <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/60">
             <div className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
-              Composer
+              Your call
             </div>
             <textarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               rows={3}
-              placeholder="Make a call. Add context, a thesis, or a link..."
+              placeholder="What’s your take? Add a thesis or a source."
               className="mt-2 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:ring-2 focus:ring-zinc-900 dark:border-zinc-800 dark:bg-zinc-950/40 dark:text-zinc-50 dark:focus:ring-zinc-200"
             />
 
@@ -158,7 +158,7 @@ export default function CreatePrediction() {
                       : "bg-white text-zinc-800 ring-zinc-200 dark:bg-zinc-950/40 dark:text-zinc-200 dark:ring-zinc-800"
                   }`}
                 >
-                  Predict UP
+                  Up
                 </button>
                 <button
                   type="button"
@@ -169,7 +169,7 @@ export default function CreatePrediction() {
                       : "bg-white text-zinc-800 ring-zinc-200 dark:bg-zinc-950/40 dark:text-zinc-200 dark:ring-zinc-800"
                   }`}
                 >
-                  Predict DOWN
+                  Down
                 </button>
               </div>
 
@@ -235,7 +235,7 @@ export default function CreatePrediction() {
               </span>
             </div>
             <div className="mt-3 rounded-2xl bg-zinc-50 p-3 text-sm text-zinc-800 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:text-zinc-200 dark:ring-zinc-800">
-              {draft.trim().length > 0 ? draft.trim() : "Add context to strengthen your call."}
+              {draft.trim().length > 0 ? draft.trim() : "Add a quick thesis or source."}
             </div>
           </section>
 
@@ -250,7 +250,7 @@ export default function CreatePrediction() {
             disabled={submitting}
             className="inline-flex w-full items-center justify-center rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition disabled:opacity-50 active:scale-[0.99] dark:bg-zinc-50 dark:text-zinc-950"
           >
-            {submitting ? "Posting..." : `Post prediction`}
+            {submitting ? "Posting..." : `Post`}
           </button>
         </form>
       </main>

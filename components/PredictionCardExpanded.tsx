@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { MarketBar } from "@/components/MarketBar";
 
 type ExpandedPrediction = {
   id: number;
@@ -28,16 +29,15 @@ function avatarBgFromId(id: number): string {
   return `hsl(${hue} 70% 45%)`;
 }
 
-function formatEnds(unixSeconds: number): string {
-  return new Date(unixSeconds * 1000).toLocaleString();
-}
-
-function formatCompactWLD(baseUnits: string): string {
-  const wld = Number(baseUnits) / 1e18;
-  if (!Number.isFinite(wld)) return "0";
-  if (wld >= 1000) return `${(wld / 1000).toFixed(1)}k`;
-  if (wld >= 100) return `${wld.toFixed(0)}`;
-  return wld.toFixed(2);
+function formatTimeLeft(unixSeconds: number): string {
+  const msLeft = unixSeconds * 1000 - Date.now();
+  if (msLeft <= 0) return "ended";
+  const minutes = Math.floor(msLeft / 60000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
 }
 
 export function PredictionCardExpanded({
@@ -52,10 +52,10 @@ export function PredictionCardExpanded({
     [prediction.creatorUserId]
   );
 
-  const totalFor = Number(prediction.stakeSummary.totalFor);
-  const totalAgainst = Number(prediction.stakeSummary.totalAgainst);
-  const total = totalFor + totalAgainst;
-  const forPct = total > 0 ? Math.round((totalFor / total) * 100) : 50;
+  const timeLeft = useMemo(
+    () => formatTimeLeft(prediction.timeframeEnd),
+    [prediction.timeframeEnd]
+  );
 
   const directionLabel = prediction.direction === "up" ? "UP" : "DOWN";
 
@@ -68,6 +68,7 @@ export function PredictionCardExpanded({
           aria-hidden="true"
         />
         <div className="min-w-0 flex-1">
+          {/* Creator row */}
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">
@@ -78,13 +79,18 @@ export function PredictionCardExpanded({
               </div>
             </div>
 
-            <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-1 text-[11px] font-semibold text-zinc-700 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-900/60 dark:text-zinc-200 dark:ring-zinc-800">
-              {prediction.confidence}% conf
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-1 text-[11px] font-semibold text-zinc-700 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-900/60 dark:text-zinc-200 dark:ring-zinc-800">
+                {prediction.confidence}% conf
+              </span>
+              <span className="inline-flex items-center rounded-full bg-white px-2 py-1 text-[11px] font-semibold text-zinc-600 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:text-zinc-300 dark:ring-zinc-800">
+                {timeLeft === "ended" ? "Ended" : `${timeLeft} left`}
+              </span>
+            </div>
           </div>
 
-          <div className="mt-3">
-            <div className="flex items-center gap-2">
+          {/* Main prediction line */}
+          <div className="mt-3 flex items-center gap-2">
               <span className="text-2xl font-extrabold tracking-tight text-zinc-900 dark:text-zinc-50">
                 {prediction.assetSymbol}
               </span>
@@ -97,49 +103,18 @@ export function PredictionCardExpanded({
               >
                 {directionLabel}
               </span>
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                ends {formatEnds(prediction.timeframeEnd)}
+              <span className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">
+                ends {new Date(prediction.timeframeEnd * 1000).toLocaleString()}
               </span>
-            </div>
-
-            <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-              Status:{" "}
-              <span className="font-semibold text-zinc-700 dark:text-zinc-200">
-                {prediction.status}
-              </span>
-            </div>
           </div>
 
-          <div className="mt-4 rounded-2xl bg-zinc-50 p-3 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:ring-zinc-800">
-            <div className="flex items-center justify-between text-xs text-zinc-600 dark:text-zinc-300">
-              <div className="font-semibold">For vs Against</div>
-              <div>{forPct}% For</div>
-            </div>
-            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-rose-200/70 dark:bg-rose-950/60">
-              <div
-                className="h-full bg-emerald-500"
-                style={{ width: `${forPct}%` }}
-                aria-hidden="true"
-              />
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <div className="rounded-xl bg-white p-3 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:ring-zinc-800">
-                <div className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
-                  For
-                </div>
-                <div className="mt-0.5 text-sm font-extrabold text-zinc-900 dark:text-zinc-50">
-                  {formatCompactWLD(prediction.stakeSummary.totalFor)} WLD
-                </div>
-              </div>
-              <div className="rounded-xl bg-white p-3 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:ring-zinc-800">
-                <div className="text-[11px] font-semibold text-rose-700 dark:text-rose-300">
-                  Against
-                </div>
-                <div className="mt-0.5 text-sm font-extrabold text-zinc-900 dark:text-zinc-50">
-                  {formatCompactWLD(prediction.stakeSummary.totalAgainst)} WLD
-                </div>
-              </div>
-            </div>
+          {/* Market module */}
+          <div className="mt-4">
+            <MarketBar
+              totalForBaseUnits={prediction.stakeSummary.totalFor}
+              totalAgainstBaseUnits={prediction.stakeSummary.totalAgainst}
+              compact={false}
+            />
           </div>
 
           <button
@@ -154,4 +129,3 @@ export function PredictionCardExpanded({
     </section>
   );
 }
-

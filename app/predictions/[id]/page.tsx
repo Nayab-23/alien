@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/MiniKitProvider";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -81,6 +81,7 @@ export default function PredictionPage() {
   const [predScore, setPredScore] = useState<number>(0);
   const [predVote, setPredVote] = useState<-1 | 0 | 1>(0);
   const [betOpen, setBetOpen] = useState(false);
+  const betRollbackRef = useRef<null | (() => void)>(null);
   const judgeMode =
     typeof process !== "undefined" && process.env.NEXT_PUBLIC_JUDGE_MODE === "true";
   const [judgeOn, setJudgeOn] = useState(false);
@@ -264,6 +265,24 @@ export default function PredictionPage() {
     return `signal${userId}`;
   }
 
+  function avatarBgFromId(userId: number): string {
+    const hues = [25, 190, 280, 140, 330, 210, 70];
+    const hue = hues[userId % hues.length];
+    return `hsl(${hue} 70% 45%)`;
+  }
+
+  function tsLabel(iso: string): string {
+    const t = new Date(iso).getTime();
+    const diff = Date.now() - t;
+    const minutes = Math.floor(diff / 60000);
+    if (minutes < 1) return "now";
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 48) return `${hours}h`;
+    const days = Math.floor(hours / 24);
+    return `${days}d`;
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-zinc-950 dark:text-zinc-50">
@@ -322,17 +341,17 @@ export default function PredictionPage() {
             </div>
             <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
               Prediction #{prediction.id}
+              {judgeMode && judgeOn ? " · Demo" : ""}
             </div>
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-2xl px-4 pb-[calc(env(safe-area-inset-bottom)+92px)] pt-4">
+        {/* Prediction header card */}
         <PredictionCardExpanded
           prediction={prediction}
-          onBet={() => {
-            setBetOpen(true);
-          }}
+          onBet={() => setBetOpen(true)}
         />
 
         {judgeMode && judgeOn && (
@@ -377,40 +396,9 @@ export default function PredictionPage() {
           </div>
         )}
 
-        <div className="mt-3 flex items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/60">
-          <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-            Score: <span className="font-extrabold text-zinc-900 dark:text-zinc-50">{predScore}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void votePrediction(predVote === 1 ? 0 : 1)}
-              className={`inline-flex h-10 w-10 items-center justify-center rounded-full ring-1 ring-inset transition ${
-                predVote === 1
-                  ? "bg-zinc-900 text-white ring-zinc-900 dark:bg-zinc-50 dark:text-zinc-950 dark:ring-zinc-50"
-                  : "bg-white text-zinc-700 ring-zinc-200 hover:bg-zinc-50 dark:bg-zinc-950/40 dark:text-zinc-200 dark:ring-zinc-800 dark:hover:bg-zinc-900/40"
-              }`}
-              aria-label="Upvote prediction"
-            >
-              ▲
-            </button>
-            <button
-              type="button"
-              onClick={() => void votePrediction(predVote === -1 ? 0 : -1)}
-              className={`inline-flex h-10 w-10 items-center justify-center rounded-full ring-1 ring-inset transition ${
-                predVote === -1
-                  ? "bg-zinc-900 text-white ring-zinc-900 dark:bg-zinc-50 dark:text-zinc-950 dark:ring-zinc-50"
-                  : "bg-white text-zinc-700 ring-zinc-200 hover:bg-zinc-50 dark:bg-zinc-950/40 dark:text-zinc-200 dark:ring-zinc-800 dark:hover:bg-zinc-900/40"
-              }`}
-              aria-label="Downvote prediction"
-            >
-              ▼
-            </button>
-          </div>
-        </div>
-
+        {/* Thread controls */}
         <div className="mt-4 rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950/60">
-          <div className="flex items-center justify-between gap-2 border-b border-zinc-200 p-2 dark:border-zinc-800">
+          <div className="flex items-center justify-between gap-2 p-2">
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -421,7 +409,7 @@ export default function PredictionPage() {
                     : "bg-white text-zinc-700 ring-zinc-200 dark:bg-zinc-950/40 dark:text-zinc-200 dark:ring-zinc-800"
                 }`}
               >
-                Comments ({prediction.commentsCount ?? comments.length})
+                Comments
               </button>
               <button
                 type="button"
@@ -436,34 +424,38 @@ export default function PredictionPage() {
               </button>
             </div>
 
-            {tab === "comments" && (
-              <div className="flex items-center gap-2 pr-2">
-                <button
-                  type="button"
-                  onClick={() => setCommentSort("top")}
-                  className={`text-xs font-semibold ${
-                    commentSort === "top"
-                      ? "text-zinc-900 dark:text-zinc-50"
-                      : "text-zinc-500 dark:text-zinc-400"
-                  }`}
-                >
-                  Top
-                </button>
-                <span className="text-zinc-300 dark:text-zinc-700">·</span>
-                <button
-                  type="button"
-                  onClick={() => setCommentSort("new")}
-                  className={`text-xs font-semibold ${
-                    commentSort === "new"
-                      ? "text-zinc-900 dark:text-zinc-50"
-                      : "text-zinc-500 dark:text-zinc-400"
-                  }`}
-                >
-                  New
-                </button>
-              </div>
-            )}
+            <div className="flex items-center gap-2 pr-2">
+              <span className="inline-flex items-center rounded-full bg-white px-2 py-1 text-[11px] font-semibold text-zinc-600 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:text-zinc-300 dark:ring-zinc-800 tabular-nums">
+                ▲ {predScore}
+              </span>
+              <button
+                type="button"
+                onClick={() => void votePrediction(predVote === 1 ? 0 : 1)}
+                className={`inline-flex h-8 w-8 items-center justify-center rounded-full ring-1 ring-inset transition ${
+                  predVote === 1
+                    ? "bg-zinc-900 text-white ring-zinc-900 dark:bg-zinc-50 dark:text-zinc-950 dark:ring-zinc-50"
+                    : "bg-white text-zinc-700 ring-zinc-200 hover:bg-zinc-50 dark:bg-zinc-950/40 dark:text-zinc-200 dark:ring-zinc-800 dark:hover:bg-zinc-900/40"
+                }`}
+                aria-label="Upvote prediction"
+              >
+                ▲
+              </button>
+              <button
+                type="button"
+                onClick={() => void votePrediction(predVote === -1 ? 0 : -1)}
+                className={`inline-flex h-8 w-8 items-center justify-center rounded-full ring-1 ring-inset transition ${
+                  predVote === -1
+                    ? "bg-zinc-900 text-white ring-zinc-900 dark:bg-zinc-50 dark:text-zinc-950 dark:ring-zinc-50"
+                    : "bg-white text-zinc-700 ring-zinc-200 hover:bg-zinc-50 dark:bg-zinc-950/40 dark:text-zinc-200 dark:ring-zinc-800 dark:hover:bg-zinc-900/40"
+                }`}
+                aria-label="Downvote prediction"
+              >
+                ▼
+              </button>
+            </div>
           </div>
+
+          <div className="border-t border-zinc-200 dark:border-zinc-800" />
 
           {tab === "comments" ? (
             <div className="p-4">
@@ -472,131 +464,223 @@ export default function PredictionPage() {
                   Loading comments...
                 </div>
               ) : comments.length === 0 ? (
-                <div className="text-sm text-zinc-500 dark:text-zinc-400">
-                  No comments yet. Be the first.
+                <div className="rounded-2xl bg-zinc-50 p-4 text-sm text-zinc-600 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:text-zinc-300 dark:ring-zinc-800">
+                  <div className="font-semibold text-zinc-900 dark:text-zinc-50">
+                    Start the thread
+                  </div>
+                  <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
+                    No comments yet. Add the first take, ask for sources, or challenge the market.
+                  </div>
+                  {judgeMode && judgeOn && authToken && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(
+                            `/api/dev/predictions/${prediction.id}/seed-thread`,
+                            {
+                              method: "POST",
+                              headers: { Authorization: `Bearer ${authToken}` },
+                            }
+                          );
+                          if (!res.ok) throw new Error("seed failed");
+                          await fetchPrediction();
+                          await fetchComments();
+                          setToast("Sample thread added.");
+                          window.setTimeout(() => setToast(null), 1400);
+                        } catch {
+                          setToast("Seed failed (JUDGE_MODE required).");
+                          window.setTimeout(() => setToast(null), 1600);
+                        }
+                      }}
+                      className="mt-3 inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition active:scale-[0.99] dark:bg-zinc-50 dark:text-zinc-950"
+                    >
+                      Add sample thread
+                    </button>
+                  )}
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="rounded-2xl border border-zinc-200 bg-white overflow-hidden dark:border-zinc-800 dark:bg-zinc-950/20">
+                  <div className="flex items-center justify-between gap-2 px-3 py-2 bg-zinc-50/70 dark:bg-zinc-950/30 border-b border-zinc-200 dark:border-zinc-800">
+                    <div className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+                      {comments.length} comment{comments.length === 1 ? "" : "s"}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCommentSort("top")}
+                        className={`text-xs font-semibold ${
+                          commentSort === "top"
+                            ? "text-zinc-900 dark:text-zinc-50"
+                            : "text-zinc-500 dark:text-zinc-400"
+                        }`}
+                      >
+                        Top
+                      </button>
+                      <span className="text-zinc-300 dark:text-zinc-700">·</span>
+                      <button
+                        type="button"
+                        onClick={() => setCommentSort("new")}
+                        className={`text-xs font-semibold ${
+                          commentSort === "new"
+                            ? "text-zinc-900 dark:text-zinc-50"
+                            : "text-zinc-500 dark:text-zinc-400"
+                        }`}
+                      >
+                        New
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
                   {comments.map((c) => (
                     <div
                       key={c.id}
-                      className="rounded-2xl bg-zinc-50 p-3 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:ring-zinc-800"
+                      className="p-3"
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                          @{handleFromUserId(c.authorUserId)}
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                            {new Date(c.createdAt).toLocaleString()}
+                      <div className="flex items-start gap-3">
+                        <div
+                          className="h-9 w-9 shrink-0 rounded-full ring-1 ring-black/10 dark:ring-white/10"
+                          style={{ background: avatarBgFromId(c.authorUserId) }}
+                          aria-hidden="true"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                                @{handleFromUserId(c.authorUserId)}
+                              </div>
+                              <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                                {tsLabel(c.createdAt)}
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void voteComment(c.id, (c.userVote ?? 0) === 1 ? 0 : 1)
+                              }
+                              className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold ring-1 ring-inset transition ${
+                                (c.userVote ?? 0) === 1
+                                  ? "bg-zinc-900 text-white ring-zinc-900 dark:bg-zinc-50 dark:text-zinc-950 dark:ring-zinc-50"
+                                  : "bg-white text-zinc-700 ring-zinc-200 dark:bg-zinc-950/40 dark:text-zinc-200 dark:ring-zinc-800"
+                              }`}
+                              aria-label="Upvote comment"
+                            >
+                              ▲ <span className="tabular-nums">{c.score ?? 0}</span>
+                            </button>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => void voteComment(c.id, (c.userVote ?? 0) === 1 ? 0 : 1)}
-                            className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold ring-1 ring-inset transition ${
-                              (c.userVote ?? 0) === 1
-                                ? "bg-zinc-900 text-white ring-zinc-900 dark:bg-zinc-50 dark:text-zinc-950 dark:ring-zinc-50"
-                                : "bg-white text-zinc-700 ring-zinc-200 dark:bg-zinc-950/40 dark:text-zinc-200 dark:ring-zinc-800"
-                            }`}
-                            aria-label="Upvote comment"
-                          >
-                            ▲ <span className="tabular-nums">{c.score ?? 0}</span>
-                          </button>
+
+                          <div className="mt-2 text-sm text-zinc-900 dark:text-zinc-50 whitespace-pre-wrap">
+                            {c.body}
+                          </div>
                         </div>
-                      </div>
-                      <div className="mt-2 text-sm text-zinc-900 dark:text-zinc-50 whitespace-pre-wrap">
-                        {c.body}
                       </div>
                     </div>
                   ))}
+                  </div>
                 </div>
               )}
             </div>
           ) : (
             <div className="p-4">
-              <div className="space-y-3">
-                {prediction.settlementTimestamp && (
-                  <div className="rounded-2xl bg-zinc-50 p-3 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:ring-zinc-800">
-                    <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                      Settlement
-                    </div>
-                    <div className="mt-1 text-sm text-zinc-900 dark:text-zinc-50">
-                      Settled at{" "}
-                      <span className="font-semibold">
-                        ${prediction.settlementPrice}
-                      </span>{" "}
-                      on{" "}
-                      {new Date(prediction.settlementTimestamp * 1000).toLocaleString()}
-                    </div>
-                  </div>
-                )}
+              {/* Timeline */}
+              {(() => {
+                type Item =
+                  | { type: "stake"; ts: number; stake: Stake }
+                  | { type: "settlement"; ts: number }
+                  | { type: "rep"; ts: number; ev: ReputationEvent };
 
-                {prediction.stakes.length > 0 ? (
-                  <div className="rounded-2xl bg-zinc-50 p-3 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:ring-zinc-800">
-                    <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                      Stakes placed
+                const items: Item[] = [];
+                for (const s of prediction.stakes) {
+                  items.push({ type: "stake", ts: new Date(s.createdAt).getTime(), stake: s });
+                }
+                if (prediction.settlementTimestamp) {
+                  items.push({ type: "settlement", ts: prediction.settlementTimestamp * 1000 });
+                }
+                if (prediction.reputationEvents) {
+                  for (const e of prediction.reputationEvents) {
+                    items.push({ type: "rep", ts: new Date(e.createdAt).getTime(), ev: e });
+                  }
+                }
+                items.sort((a, b) => b.ts - a.ts);
+
+                if (items.length === 0) {
+                  return (
+                    <div className="rounded-2xl bg-zinc-50 p-4 text-sm text-zinc-600 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:text-zinc-300 dark:ring-zinc-800">
+                      No activity yet. Place a bet or leave a comment to start the thread.
                     </div>
-                    <div className="mt-2 space-y-2">
-                      {prediction.stakes.map((s) => (
-                        <div
-                          key={s.id}
-                          className="flex items-center justify-between text-sm"
-                        >
-                          <div className="text-zinc-600 dark:text-zinc-300">
-                            @{handleFromUserId(s.userId)}{" "}
-                            <span
-                              className={`ml-1 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${
-                                s.side === "for"
-                                  ? "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:ring-emerald-900"
-                                  : "bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:ring-rose-900"
-                              }`}
-                            >
-                              {s.side === "for" ? "FOR" : "AGAINST"}
-                            </span>
-                          </div>
-                          <div className="text-zinc-900 dark:text-zinc-50 font-semibold">
-                            {formatWLD(s.amount)} {s.currency}
+                  );
+                }
+
+                return (
+                  <div className="relative pl-7">
+                    <div className="absolute left-3 top-0 bottom-0 w-px bg-zinc-200 dark:bg-zinc-800" />
+                    <div className="space-y-3">
+                      {items.map((it, idx) => (
+                        <div key={`${it.type}-${idx}-${it.ts}`} className="relative">
+                          <div className="absolute left-[9px] top-3 h-2.5 w-2.5 rounded-full bg-zinc-900 dark:bg-zinc-50" />
+                          <div className="rounded-2xl bg-zinc-50 p-3 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:ring-zinc-800">
+                            {it.type === "stake" ? (
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="text-sm text-zinc-900 dark:text-zinc-50">
+                                  <span className="font-semibold">
+                                    @{handleFromUserId(it.stake.userId)}
+                                  </span>{" "}
+                                  placed{" "}
+                                  <span
+                                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${
+                                      it.stake.side === "for"
+                                        ? "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:ring-emerald-900"
+                                        : "bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:ring-rose-900"
+                                    }`}
+                                  >
+                                    {it.stake.side === "for" ? "FOR" : "AGAINST"}
+                                  </span>
+                                </div>
+                                <div className="text-sm font-extrabold tabular-nums text-zinc-900 dark:text-zinc-50">
+                                  {formatWLD(it.stake.amount)} {it.stake.currency}
+                                </div>
+                              </div>
+                            ) : it.type === "settlement" ? (
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                                  Settled
+                                </div>
+                                <div className="text-sm font-extrabold tabular-nums text-zinc-900 dark:text-zinc-50">
+                                  ${prediction.settlementPrice}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="text-sm text-zinc-900 dark:text-zinc-50">
+                                  <span className="font-semibold">
+                                    @{handleFromUserId(it.ev.userId)}
+                                  </span>{" "}
+                                  reputation
+                                </div>
+                                <div
+                                  className={`text-sm font-extrabold tabular-nums ${
+                                    it.ev.deltaScore >= 0
+                                      ? "text-emerald-700 dark:text-emerald-300"
+                                      : "text-rose-700 dark:text-rose-300"
+                                  }`}
+                                >
+                                  {it.ev.deltaScore >= 0 ? "+" : ""}
+                                  {it.ev.deltaScore}
+                                </div>
+                              </div>
+                            )}
+                            <div className="mt-1 text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">
+                              {new Date(it.ts).toLocaleString()}
+                            </div>
                           </div>
                         </div>
                       ))}
                     </div>
                   </div>
-                ) : (
-                  <div className="text-sm text-zinc-500 dark:text-zinc-400">
-                    No stakes yet.
-                  </div>
-                )}
-
-                {prediction.reputationEvents && prediction.reputationEvents.length > 0 && (
-                  <div className="rounded-2xl bg-zinc-50 p-3 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:ring-zinc-800">
-                    <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                      Reputation impacts
-                    </div>
-                    <div className="mt-2 space-y-2">
-                      {prediction.reputationEvents.map((e) => (
-                        <div key={e.id} className="flex items-center justify-between text-sm">
-                          <div className="text-zinc-600 dark:text-zinc-300">
-                            @{handleFromUserId(e.userId)}{" "}
-                            <span className="text-zinc-400 dark:text-zinc-500">
-                              ({e.outcome})
-                            </span>
-                          </div>
-                          <div
-                            className={`font-semibold ${
-                              e.deltaScore >= 0
-                                ? "text-emerald-700 dark:text-emerald-300"
-                                : "text-rose-700 dark:text-rose-300"
-                            }`}
-                          >
-                            {e.deltaScore >= 0 ? "+" : ""}
-                            {e.deltaScore}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+                );
+              })()}
             </div>
           )}
         </div>
@@ -664,9 +748,34 @@ export default function PredictionPage() {
           setToast("Verify in Alien to place demo bets.");
           window.setTimeout(() => setToast(null), 1800);
         }}
+        onOptimistic={(stakeSummary) => {
+          if (!prediction) return;
+          const prev = prediction.stakeSummary;
+          betRollbackRef.current = () => {
+            setPrediction((p) => (p ? { ...p, stakeSummary: prev } : p));
+          };
+          setPrediction((p) =>
+            p
+              ? {
+                  ...p,
+                  stakeSummary: {
+                    ...p.stakeSummary,
+                    totalFor: stakeSummary.totalFor,
+                    totalAgainst: stakeSummary.totalAgainst,
+                    stakeCount: stakeSummary.stakeCount,
+                  },
+                }
+              : p
+          );
+        }}
+        onOptimisticRollback={() => {
+          betRollbackRef.current?.();
+          betRollbackRef.current = null;
+        }}
         onSuccess={({ stake, stakeSummary }) => {
           setToast("Bet confirmed (demo).");
           window.setTimeout(() => setToast(null), 1800);
+          betRollbackRef.current = null;
           setPrediction((p) =>
             p
               ? {

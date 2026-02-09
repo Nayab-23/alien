@@ -9,7 +9,6 @@ import {
   users,
   votes,
 } from "@/lib/db/schema";
-import { isAdmin } from "@/lib/settlement";
 import { and, eq, sql } from "drizzle-orm";
 
 function judgeModeEnabled(): boolean {
@@ -29,17 +28,13 @@ function nowPlusDays(days: number): Date {
 }
 
 // ─── POST /api/dev/seed ─────────────────────────────────────────────────────
-// Dev-only seed for judge demos. Admin + JUDGE_MODE required.
+// Dev-only seed for judge demos. JUDGE_MODE required.
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if (auth.error) return auth.error;
 
   if (!judgeModeEnabled()) {
     return Response.json({ error: "Judge mode disabled" }, { status: 404 });
-  }
-
-  if (!isAdmin(auth.user.alienId)) {
-    return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
   let payload: any = {};
@@ -64,7 +59,7 @@ export async function POST(request: Request) {
       createdUsers.push({ id: inserted[0].id, alienId: inserted[0].alienId });
     }
 
-    // 2) Follow graph: current admin follows some seeded users so Following tab works.
+    // 2) Follow graph: current user follows some seeded users so Following tab works.
     for (const u of createdUsers.slice(0, Math.min(4, createdUsers.length))) {
       await db
         .insert(follows)
@@ -121,16 +116,19 @@ export async function POST(request: Request) {
         const bettor = pick(createdUsers);
         const side = Math.random() > 0.5 ? "for" : "against";
         const amount = String(randInt(1, 20) * 1e18);
-        await db.insert(stakes).values({
-          predictionId: p.id,
-          userId: bettor.id,
-          side,
-          amount,
-          currency: "DEMO",
-          network: "demo",
-          invoiceId: null,
-          paymentStatus: "completed",
-        });
+        await db
+          .insert(stakes)
+          .values({
+            predictionId: p.id,
+            userId: bettor.id,
+            side,
+            amount,
+            currency: "DEMO",
+            network: "demo",
+            invoiceId: null,
+            paymentStatus: "completed",
+          })
+          .onConflictDoNothing();
         stakesInserted++;
       }
 
@@ -242,4 +240,3 @@ export async function POST(request: Request) {
     return Response.json({ error: "Seed failed" }, { status: 500 });
   }
 }
-

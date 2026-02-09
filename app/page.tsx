@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/MiniKitProvider";
 import Link from "next/link";
 import { PredictionCard, type FeedPrediction } from "@/components/PredictionCard";
@@ -49,6 +49,7 @@ export default function Home() {
   const [toast, setToast] = useState<string | null>(null);
   const [betOpen, setBetOpen] = useState(false);
   const [betPrediction, setBetPrediction] = useState<Prediction | null>(null);
+  const betRollbackRef = useRef<null | (() => void)>(null);
   const judgeMode =
     typeof process !== "undefined" && process.env.NEXT_PUBLIC_JUDGE_MODE === "true";
   const [judgeOn, setJudgeOn] = useState(false);
@@ -65,6 +66,36 @@ export default function Home() {
         : null;
     setJudgeOn(stored === "true");
   }, [judgeMode]);
+
+  useEffect(() => {
+    if (!judgeMode || !judgeOn) return;
+    if (!authToken) return;
+    // One-time autoseed for smooth demos.
+    const seeded =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem("anchorsignal_judge_autoseeded")
+        : null;
+    if (seeded === "true") return;
+    if (predictions.length > 0) return;
+
+    (async () => {
+      try {
+        const res = await fetch("/api/dev/seed", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({ users: 8, predictions: 14, comments_per_prediction: 4 }),
+        });
+        if (!res.ok) return;
+        window.localStorage.setItem("anchorsignal_judge_autoseeded", "true");
+        await fetchPredictions();
+      } catch {
+        // ignore
+      }
+    })();
+  }, [authToken, judgeMode, judgeOn, predictions.length]);
 
   async function fetchPredictions() {
     try {
@@ -105,11 +136,11 @@ export default function Home() {
         <div className="text-center max-w-md">
           <h1 className="text-3xl font-bold mb-4">AnchorSignal</h1>
           <p className="text-gray-600 dark:text-zinc-400 mb-6">
-            Bet on price predictions with verified humans. Open this app inside Alien to get started.
+            A social prediction market for verified humans. Open in Alien to start.
           </p>
           <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
           <p className="text-sm text-gray-500 dark:text-zinc-500 mt-4">
-            Waiting for Alien bridge...
+            Connecting...
           </p>
         </div>
       </div>
@@ -136,16 +167,25 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-zinc-950 dark:text-zinc-50">
-      <header className="sticky top-0 z-20 bg-gray-50/90 backdrop-blur supports-[backdrop-filter]:bg-gray-50/70 dark:bg-zinc-950/80">
+      <header className="sticky top-0 z-30 border-b border-zinc-200 bg-gray-50/90 backdrop-blur supports-[backdrop-filter]:bg-gray-50/70 dark:border-zinc-800 dark:bg-zinc-950/80">
         <div className="mx-auto max-w-2xl px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-xl bg-zinc-900 dark:bg-zinc-50" aria-hidden="true" />
-              <div className="leading-tight">
-                <div className="text-sm font-extrabold tracking-tight">AnchorSignal</div>
-                <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                  Social prediction platform
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <div className="text-sm font-extrabold tracking-tight truncate">
+                  AnchorSignal
                 </div>
+                <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-800 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900/60">
+                  Verified
+                </span>
+                {judgeMode && judgeOn && (
+                  <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-1 text-[11px] font-semibold text-zinc-700 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-900/60 dark:text-zinc-200 dark:ring-zinc-800">
+                    Demo
+                  </span>
+                )}
+              </div>
+              <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                Feed
               </div>
             </div>
 
@@ -169,6 +209,7 @@ export default function Home() {
                   Judge
                 </button>
               )}
+
               <button
                 type="button"
                 className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/40 dark:ring-zinc-800"
@@ -191,7 +232,7 @@ export default function Home() {
               </button>
 
               <Link
-                href="/leaderboard"
+                href={user?.id ? `/users/${user.id}` : "/leaderboard"}
                 className="inline-flex h-10 w-10 items-center justify-center rounded-full ring-1 ring-inset ring-zinc-200 bg-white dark:bg-zinc-950/40 dark:ring-zinc-800"
                 aria-label="Profile"
               >
@@ -201,8 +242,7 @@ export default function Home() {
           </div>
         </div>
 
-      <div className="sticky top-[calc(env(safe-area-inset-top)+64px)] z-20 border-b border-zinc-200 bg-gray-50/90 backdrop-blur supports-[backdrop-filter]:bg-gray-50/70 dark:border-zinc-800 dark:bg-zinc-950/80">
-        <div className="mx-auto max-w-2xl px-4 py-2">
+        <div className="mx-auto max-w-2xl px-4 pb-3">
           <div className="flex items-center gap-2 overflow-x-auto [-webkit-overflow-scrolling:touch]">
             {(
               [
@@ -227,10 +267,9 @@ export default function Home() {
             ))}
           </div>
         </div>
-      </div>
       </header>
 
-      <main className="mx-auto max-w-2xl px-4 pb-[calc(env(safe-area-inset-bottom)+24px)] pt-4">
+      <main className="mx-auto max-w-2xl px-4 pb-[calc(env(safe-area-inset-bottom)+84px)] pt-4">
         {judgeMode && judgeOn && (
           <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
             <div className="flex items-center justify-between gap-3">
@@ -278,30 +317,11 @@ export default function Home() {
             </div>
           </div>
         )}
-        <div className="mb-4">
-          <Link
-            href="/create"
-            className="flex items-center justify-between rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/60"
-          >
-            <div>
-              <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                Make a prediction
-              </div>
-              <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                Post a call. Let the market react.
-              </div>
-            </div>
-            <div className="inline-flex items-center rounded-xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white dark:bg-zinc-50 dark:text-zinc-950">
-              Create
-            </div>
-          </Link>
-        </div>
-
         {sortedPredictions.length === 0 ? (
           <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-center text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950/40 dark:text-zinc-300">
             {tab === "following"
-              ? "No followed predictions yet. Follow a creator to curate your feed."
-              : "No predictions yet. Follow someone or create one."}
+              ? "No posts from people you follow. Follow someone to curate your feed."
+              : "No predictions yet. Post a call or follow someone."}
           </div>
         ) : (
           <div className="space-y-3">
@@ -329,14 +349,25 @@ export default function Home() {
                   setBetPrediction(pred);
                   setBetOpen(true);
                 }}
-                onComment={() => {
-                  // Demo-first: detail page owns thread/composer today.
-                }}
               />
             ))}
           </div>
         )}
       </main>
+
+      <Link
+        href="/create"
+        className="fixed right-4 z-40 inline-flex items-center gap-2 rounded-full bg-zinc-900 px-4 py-3 text-sm font-semibold text-white shadow-lg dark:bg-zinc-50 dark:text-zinc-950"
+        style={{
+          bottom: "calc(env(safe-area-inset-bottom) + 16px)",
+        }}
+        aria-label="Create prediction"
+      >
+        <span className="text-lg leading-none" aria-hidden="true">
+          +
+        </span>
+        Create
+      </Link>
 
       {toast && (
         <div className="fixed left-0 right-0 bottom-[calc(env(safe-area-inset-bottom)+12px)] z-40 mx-auto max-w-2xl px-4">
@@ -364,9 +395,46 @@ export default function Home() {
           setToast("Verify in Alien to place demo bets.");
           window.setTimeout(() => setToast(null), 1800);
         }}
+        onOptimistic={(stakeSummary) => {
+          if (!betPrediction) return;
+          const predictionId = betPrediction.id;
+          const prev = predictions.find((p) => p.id === predictionId)?.stakeSummary ?? betPrediction.stakeSummary;
+          betRollbackRef.current = () => {
+            setPredictions((list) =>
+              list.map((p) =>
+                p.id === predictionId
+                  ? {
+                      ...p,
+                      stakeSummary: prev,
+                    }
+                  : p
+              )
+            );
+          };
+          setPredictions((list) =>
+            list.map((p) =>
+              p.id === predictionId
+                ? {
+                    ...p,
+                    stakeSummary: {
+                      ...p.stakeSummary,
+                      totalFor: stakeSummary.totalFor,
+                      totalAgainst: stakeSummary.totalAgainst,
+                      stakeCount: stakeSummary.stakeCount,
+                    },
+                  }
+                : p
+            )
+          );
+        }}
+        onOptimisticRollback={() => {
+          betRollbackRef.current?.();
+          betRollbackRef.current = null;
+        }}
         onSuccess={({ stakeSummary }) => {
           setToast("Bet confirmed (demo).");
           window.setTimeout(() => setToast(null), 1800);
+          betRollbackRef.current = null;
           if (!betPrediction) return;
           setPredictions((list) =>
             list.map((p) =>

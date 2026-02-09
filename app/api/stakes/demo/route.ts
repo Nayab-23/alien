@@ -23,6 +23,9 @@ function toBaseUnits(amount: number): string {
 // ─── POST /api/stakes/demo ──────────────────────────────────────────────────
 // Creates an immediately-confirmed stake. No external payment dependencies.
 export async function POST(request: Request) {
+  if (process.env.DEMO_MODE !== "true") {
+    return Response.json({ error: "Demo mode disabled" }, { status: 404 });
+  }
   const auth = await requireAuth();
   if (auth.error) return auth.error;
 
@@ -109,4 +112,3 @@ export async function POST(request: Request) {
     return Response.json({ error: "Failed to create demo stake" }, { status: 500 });
   }
 }
-
