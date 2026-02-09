@@ -14,6 +14,7 @@ function loadFromStorage(): DemoState | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as DemoState;
     if (!parsed || !Array.isArray(parsed.users) || !Array.isArray(parsed.predictions)) return null;
+    if (parsed.predictions.length === 0) return null;
     return parsed;
   } catch {
     return null;
@@ -49,4 +50,3 @@ export function resetDemoState(): DemoState {
   saveToStorage(cached);
   return cached;
 }
-
